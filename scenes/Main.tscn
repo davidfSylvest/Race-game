@@ -1,0 +1,125 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/Player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/Main.gd" id="2_main"]
+[ext_resource type="Script" path="res://scripts/Joystick.gd" id="3_joystick"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_player"]
+radius = 16.0
+height = 40.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_endzone"]
+size = Vector2(40, 320)
+
+[node name="Main" type="Node2D"]
+script = ExtResource("2_main")
+
+[node name="Terrain" type="Node2D" parent="."]
+
+[node name="GroundFlatStart" type="StaticBody2D" parent="Terrain"]
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundFlatStart"]
+polygon = PackedVector2Array(-400, 600, 600, 600, 600, 900, -400, 900)
+
+[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundFlatStart"]
+color = Color(0.55, 0.55, 0.58, 1)
+polygon = PackedVector2Array(-400, 600, 600, 600, 600, 900, -400, 900)
+
+[node name="GroundDownhill" type="StaticBody2D" parent="Terrain"]
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundDownhill"]
+polygon = PackedVector2Array(600, 600, 1300, 1050, 1300, 1350, 600, 900)
+
+[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundDownhill"]
+color = Color(0.45, 0.47, 0.52, 1)
+polygon = PackedVector2Array(600, 600, 1300, 1050, 1300, 1350, 600, 900)
+
+[node name="GroundUphillCrest" type="StaticBody2D" parent="Terrain"]
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundUphillCrest"]
+polygon = PackedVector2Array(1300, 1050, 1800, 680, 1800, 980, 1300, 1350)
+
+[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundUphillCrest"]
+color = Color(0.52, 0.46, 0.46, 1)
+polygon = PackedVector2Array(1300, 1050, 1800, 680, 1800, 980, 1300, 1350)
+
+[node name="GroundDownhillPostCrest" type="StaticBody2D" parent="Terrain"]
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundDownhillPostCrest"]
+polygon = PackedVector2Array(1800, 680, 2100, 900, 2100, 1200, 1800, 980)
+
+[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundDownhillPostCrest"]
+color = Color(0.45, 0.47, 0.52, 1)
+polygon = PackedVector2Array(1800, 680, 2100, 900, 2100, 1200, 1800, 980)
+
+[node name="GroundFlatEnd" type="StaticBody2D" parent="Terrain"]
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundFlatEnd"]
+polygon = PackedVector2Array(2100, 900, 2900, 900, 2900, 1200, 2100, 1200)
+
+[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundFlatEnd"]
+color = Color(0.55, 0.55, 0.58, 1)
+polygon = PackedVector2Array(2100, 900, 2900, 900, 2900, 1200, 2100, 1200)
+
+[node name="EndZone" type="Area2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(2800, 740)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="EndZone"]
+shape = SubResource("RectangleShape2D_endzone")
+
+[node name="EndZoneVisual" type="Polygon2D" parent="EndZone"]
+color = Color(0.3, 0.85, 0.4, 0.35)
+polygon = PackedVector2Array(-20, -160, 20, -160, 20, 160, -20, 160)
+
+[node name="Player" type="CharacterBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(100, 560)
+script = ExtResource("1_player")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
+position = Vector2(0, -20)
+shape = SubResource("CapsuleShape2D_player")
+
+[node name="Visual" type="Polygon2D" parent="Player"]
+color = Color(0.85, 0.25, 0.25, 1)
+polygon = PackedVector2Array(-16, -40, 16, -40, 16, 0, -16, 0)
+
+[node name="Camera2D" type="Camera2D" parent="Player"]
+zoom = Vector2(0.85, 0.85)
+position_smoothing_enabled = true
+position_smoothing_speed = 5.0
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="TimerLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 20.0
+offset_right = 340.0
+offset_bottom = 64.0
+theme_override_font_sizes/font_size = 34
+text = "00:00.000"
+
+[node name="SpeedLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 68.0
+offset_right = 340.0
+offset_bottom = 100.0
+theme_override_font_sizes/font_size = 20
+text = "Speed: 0.0 px/s"
+
+[node name="Joystick" type="Control" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 0
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 0.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = -280.0
+offset_right = 280.0
+offset_bottom = -40.0
+mouse_filter = 2
+script = ExtResource("3_joystick")
