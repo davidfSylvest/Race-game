@@ -1,0 +1,116 @@
+# Race Game — Physics Feel-Test Prototype
+
+A Godot 2D mobile prototype whose entire purpose is testing the *feel* of a
+lean-based movement system on hilly terrain. It is explicitly not a game yet:
+no menus, no title screen, no results screen, no second course, no save
+system, no ghost/replay. Gray-box art only (procedurally generated colored
+polygons). Do not add any of the "DO NOT BUILD" items below unless the user
+explicitly asks for that specific thing in that specific message.
+
+## Godot version: 4.7.1 — always, no exceptions
+
+**Always use Godot 4.7.1-stable.** Not "latest," not 4.3, not whatever a
+particular editor happens to have cached. The user has been burned by a
+stray older-version editor silently re-saving/downgrading project files.
+If you (or any tool) opens this project with anything other than 4.7.1,
+you risk corrupting `.uid` sidecar files, `project.godot` config keys, or
+`.import` metadata that 4.7.1 expects in a specific shape.
+
+- Binary for headless validation:
+  `https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip`
+  Verify a version tag is real before trusting it (a fake tag 404s; a real
+  one 302-redirects to the asset) — don't guess a newer tag exists.
+- Before committing, confirm nothing downgraded `project.godot`,
+  `scripts/*.gd.uid`, or `*.import` files. If you see a diff there you
+  didn't intend, something opened the project with the wrong version.
+- If you ever need a different Godot version for a specific one-off reason,
+  say so explicitly and ask before making it the new default — don't drift
+  silently.
+
+## Validating changes headlessly (no display in this environment)
+
+This environment has no GUI. To verify a change actually works before
+handing it off:
+
+1. Download/keep the 4.7.1 binary at a stable path (e.g. `/tmp/Godot_v4.7.1-stable_linux.x86_64`).
+2. `rm -rf .godot` then run `--headless --quit-after N` to force a clean
+   reimport and confirm no import errors.
+3. Run the actual game headless (`--headless --quit-after N`) and confirm
+   exit code 0 with no `ERROR`/`SCRIPT ERROR` lines.
+4. For physics changes, write a throwaway `scripts/_HeadlessTest.gd`,
+   temporarily register it as an `[autoload]` in `project.godot`, and drive
+   the player by calling `player.call("_physics_process", delta)` directly
+   with a stubbed joystick vector (`player.joystick.set("_knob_offset", ...)`).
+   Print the numbers that matter and sanity-check them against the intended
+   design (e.g. "downhill + lean should exceed flat + same lean").
+5. **Always remove the test scaffolding before committing**: delete
+   `scripts/_HeadlessTest.gd`, restore `project.godot` (no leftover
+   `[autoload]` block), and `rm -rf .godot` so nothing test-only ships.
+6. Note: `--headless --editor --quit-after N` (forcing a reimport via the
+   editor) can crash on exit in 4.7.1 with `ERROR: Parameter "singleton" is
+   null.` — this is a harmless teardown quirk in that invocation only; the
+   import itself completes first. Prefer plain `--headless --quit-after N`
+   (no `--editor`) for actually running/testing the game.
+
+Don't trust a change until you've actually run these steps — this project
+has already shipped one real bug (an unconditional gravity term that
+overrode player input) that a headless smoke test caught before commit.
+
+## Architecture
+
+- `scenes/Main.tscn` — the one scene. `Main.gd` orchestrates: timer
+  start/stop, HUD text, restart wiring, and positions the player/end-zone
+  from the procedurally-built terrain rather than hardcoded coordinates.
+- `scripts/Terrain.gd` — builds the ground at runtime from a `keyframes`
+  array of `(x, y)` control points, smoothstep-interpolated between them
+  (curved, not linear) into one `CollisionPolygon2D` + `Polygon2D`. Exposes
+  `height_at(x)`, `spawn_x()`, `course_end_x()` so other scripts never
+  hardcode the course layout.
+- `scripts/Player.gd` — the physics core. All movement tuning lives here as
+  `@export` vars grouped by concern (Acceleration, Top Speed Curve,
+  Gravity, Slope Response, Lean Alignment, Fall/Wipeout, Lean Visual).
+  `reset(spawn_position)` re-centers state for the in-game restart — no
+  scene reload.
+- `scripts/Joystick.gd` — fixed bottom-left virtual joystick. Touch primary,
+  mouse fallback for desktop testing. `get_vector()` returns deflection as
+  a `Vector2`: length 0–1 is magnitude, direction is lean angle.
+- `scripts/Main.gd` — HUD readouts (timer, speed, best time), restart
+  button wiring, end-zone signal handling.
+
+## Movement design (as of this writing — check `Player.gd` for the actual
+## current formulas, this is a summary not a source of truth)
+
+- Accel scales linearly with lean magnitude; top speed scales with lean
+  magnitude raised to an exported exponent (steep curve — committing to
+  near-full lean unlocks disproportionately more speed than moderate lean).
+- Velocity persists independent of lean; a friction constant bleeds
+  ground-speed every physics frame regardless of input.
+- Lean force is applied along the actual ground tangent (not a fixed
+  world-horizontal axis), so slope matters, not just "how hard forward."
+- The player's lean *angle* is expected to track the slope: pointing the
+  stick down-and-forward on a downhill and up-and-forward on an uphill is
+  mechanically rewarded over just holding a flat push-forward. Getting this
+  wrong isn't a hard clamp to zero — it's a smooth effectiveness penalty.
+- Sustained lean magnitude above a threshold triggers a wipeout: speed cut,
+  input locked out briefly, then control returns. No scene reload, no
+  death — the timer keeps running.
+- Every constant governing the above is an `@export` specifically so it can
+  be retuned from playtesting feedback without touching the logic.
+
+## Working style expected on this project
+
+- The user plays on a phone only, via the Godot Android editor. There is no
+  desktop testing loop on their end — your headless validation here is the
+  only safety net before they ever see a change.
+- When asked to improve/tune physics, prefer adjusting exported constants
+  and well-justified formula changes over adding new systems. Validate with
+  a headless smoke test that actually measures the numbers, don't just
+  "should work" it.
+- Don't add UI, menus, persistence, or scope beyond what's asked. A stray
+  extra system is a bigger cost here than it looks — this is deliberately a
+  minimal feel-test, not a growing game, unless the user says otherwise.
+- Commit messages should explain *why* a physics formula changed, including
+  any wrong-first-attempt and how testing caught it — that history matters
+  more here than in typical app code, since the "correctness" is entirely
+  about subjective feel plus the few things that are objectively checkable
+  (numbers moving in the right direction, no NaNs, no gaps in terrain).

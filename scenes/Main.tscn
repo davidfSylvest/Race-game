@@ -63,12 +63,21 @@ offset_bottom = 64.0
 theme_override_font_sizes/font_size = 34
 text = "00:00.000"
 
+[node name="BestLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 66.0
+offset_right = 340.0
+offset_bottom = 90.0
+theme_override_font_sizes/font_size = 18
+text = ""
+
 [node name="SpeedLabel" type="Label" parent="UI"]
 unique_name_in_owner = true
 offset_left = 24.0
-offset_top = 68.0
+offset_top = 94.0
 offset_right = 340.0
-offset_bottom = 100.0
+offset_bottom = 126.0
 theme_override_font_sizes/font_size = 20
 text = "Speed: 0.0 px/s"
 

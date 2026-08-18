@@ -8,6 +8,7 @@ extends Node2D
 @onready var end_zone: Area2D = %EndZone
 @onready var terrain: Node2D = %Terrain
 @onready var timer_label: Label = %TimerLabel
+@onready var best_label: Label = %BestLabel
 @onready var speed_label: Label = %SpeedLabel
 @onready var restart_button: Button = %RestartButton
 
@@ -19,6 +20,7 @@ var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
 var _spawn_position: Vector2
+var _best_time: float = -1.0 # session-only, no persistence - just gives restart-and-retry a sense of progress
 
 
 func _ready() -> void:
@@ -48,6 +50,7 @@ func _process(delta: float) -> void:
 
 func _update_timer_label() -> void:
 	timer_label.text = _format_time(_elapsed)
+	best_label.text = ("Best: %s" % _format_time(_best_time)) if _best_time >= 0.0 else ""
 
 
 func _format_time(t: float) -> String:
@@ -62,7 +65,11 @@ func _on_end_zone_body_entered(body: Node) -> void:
 	if body == player and _timer_running and not _finished:
 		_finished = true
 		_timer_running = false
-		print("Final time: %s (%.3f s)" % [_format_time(_elapsed), _elapsed])
+		var is_new_best: bool = _best_time < 0.0 or _elapsed < _best_time
+		if is_new_best:
+			_best_time = _elapsed
+		_update_timer_label()
+		print("Final time: %s (%.3f s)%s" % [_format_time(_elapsed), _elapsed, "  NEW BEST" if is_new_best else ""])
 
 
 func _on_restart_pressed() -> void:

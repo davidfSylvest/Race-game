@@ -6,6 +6,10 @@ extends CharacterBody2D
 ## behaves differently on a downhill vs an uphill: leaning into a downhill
 ## compounds with gravity for extra push and a raised speed ceiling,
 ## leaning up a slope fights gravity for reduced push and a lowered ceiling.
+## On top of that, the lean ANGLE is expected to track the slope: pointing
+## the stick down-and-forward on a downhill or up-and-forward on an uphill
+## is mechanically rewarded over just holding a flat push-forward - it's
+## not "find the right force forward," it's "match the hill."
 
 signal fell()
 
@@ -25,6 +29,9 @@ signal fell()
 @export var slope_ceiling_floor: float = 0.2 # uphill can never shrink the ceiling below this fraction of its flat-ground value
 @export var gravity_slope_assist: float = 0.2 # gentle passive drift downhill even with no lean input; kept small so lean stays the dominant force, not gravity
 
+@export_group("Lean Alignment")
+@export var alignment_influence: float = 1.0 # 0 = only raw lean magnitude matters (old behavior); 1 = full angle-matching (see below)
+
 @export_group("Fall / Wipeout")
 @export var fall_threshold: float = 0.9 # lean magnitude that starts the wipeout clock
 @export var fall_sustain_time: float = 0.4 # seconds of sustained over-lean before wiping out
@@ -32,7 +39,8 @@ signal fell()
 @export var recover_time: float = 0.6 # seconds of locked-out input after a wipeout
 
 @export_group("Lean Visual")
-@export var max_tilt_degrees: float = 35.0 # visual tilt at full effective lean, so you can see how hard you're leaning
+@export var max_tilt_degrees: float = 35.0 # visual tilt (forward/back) at full effective lean.x
+@export var max_crouch_scale: float = 0.35 # vertical squash/stretch at full effective lean.y - crouch tucking down, stand tall leaning up, so the angle-matching mechanic is visible, not just felt
 @export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
 @export var locked_out_color: Color = Color(0.4, 0.4, 0.45, 1) # tint while wiped out / lean is locked out
 
@@ -55,11 +63,12 @@ func _physics_process(delta: float) -> void:
 	var lean: Vector2 = _get_lean_vector()
 	var lean_magnitude: float = clamp(lean.length(), 0.0, 1.0)
 
+	# Fall risk is about raw stick deflection (any direction) - overcommitting
+	# your weight is risky regardless of whether you aimed it well.
 	_update_fall_state(delta, lean_magnitude)
 
-	var effective_magnitude: float = 0.0 if _locked_out else lean_magnitude
-	var effective_x: float = 0.0 if _locked_out else lean.x
-	var dir_sign: float = signf(effective_x) if absf(effective_x) > 0.001 else 0.0
+	var effective_lean: Vector2 = Vector2.ZERO if _locked_out else lean
+	var dir_sign: float = signf(effective_lean.x) if absf(effective_lean.x) > 0.001 else 0.0
 
 	# Ground tangent: the direction "forward along the slope" (matches world
 	# +x on flat ground). Airborne, there's no surface to push against, so
@@ -70,25 +79,40 @@ func _physics_process(delta: float) -> void:
 		var normal: Vector2 = get_floor_normal()
 		tangent = Vector2(-normal.y, normal.x).normalized()
 
-	# Positive = leaning in the downhill direction of the current slope,
-	# negative = leaning into the uphill face. Zero on flat ground or airborne.
+	# Positive = heading in the downhill direction of the current slope,
+	# negative = heading into the uphill face. Zero on flat ground or airborne.
+	# This is about the SLOPE vs your travel direction - independent of how
+	# well you've angled the stick, which is a separate factor below.
 	var forward_slope: float = dir_sign * tangent.y if on_floor else 0.0
 
-	if effective_magnitude > 0.0 and dir_sign != 0.0:
-		var accel_force: float = effective_magnitude * max_accel_constant
-		var speed_ratio: float = pow(effective_magnitude, speed_exponent)
-		var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
-		var max_speed_this_frame: float = speed_ratio * top_speed_constant * slope_multiplier
+	if dir_sign != 0.0:
+		# How well the stick's actual angle matches the ideal direction for
+		# this slope (the tangent, or its mirror if leaning/traveling
+		# backward). Projecting the full lean vector onto that ideal
+		# direction combines "how hard" and "how well-aimed" into one
+		# number: a full-magnitude lean dead-on the slope gives 1.0, the
+		# same push aimed badly gives less, never below 0 (a wrong-angle
+		# lean just loses effectiveness, it doesn't reverse or punish you).
+		var target_dir: Vector2 = tangent if dir_sign > 0.0 else -tangent
+		var aligned_magnitude: float = clamp(effective_lean.dot(target_dir), 0.0, 1.0)
+		var raw_magnitude: float = clamp(effective_lean.length(), 0.0, 1.0)
+		var directional_magnitude: float = lerp(raw_magnitude, aligned_magnitude, alignment_influence)
 
-		# Accelerate toward the ceiling this lean+slope unlocks, but never yank
-		# existing momentum down if it's already above that ceiling - velocity
-		# only bleeds off via friction_decay, never an input clamp.
-		var ground_speed: float = velocity.dot(tangent)
-		if absf(ground_speed) < max_speed_this_frame:
-			velocity += tangent * dir_sign * accel_force * delta
-			var new_ground_speed: float = velocity.dot(tangent)
-			var clamped: float = clamp(new_ground_speed, -max_speed_this_frame, max_speed_this_frame)
-			velocity += tangent * (clamped - new_ground_speed)
+		if directional_magnitude > 0.0:
+			var accel_force: float = directional_magnitude * max_accel_constant
+			var speed_ratio: float = pow(directional_magnitude, speed_exponent)
+			var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
+			var max_speed_this_frame: float = speed_ratio * top_speed_constant * slope_multiplier
+
+			# Accelerate toward the ceiling this lean+slope unlocks, but never
+			# yank existing momentum down if it's already above that ceiling -
+			# velocity only bleeds off via friction_decay, never an input clamp.
+			var ground_speed: float = velocity.dot(tangent)
+			if absf(ground_speed) < max_speed_this_frame:
+				velocity += tangent * dir_sign * accel_force * delta
+				var new_ground_speed: float = velocity.dot(tangent)
+				var clamped: float = clamp(new_ground_speed, -max_speed_this_frame, max_speed_this_frame)
+				velocity += tangent * (clamped - new_ground_speed)
 
 	# Gravity always pulls straight down (needed for airborne falls and floor
 	# detection). On top of that, an explicit tangential assist makes the
@@ -107,7 +131,7 @@ func _physics_process(delta: float) -> void:
 
 	current_speed = velocity.length()
 
-	_update_visual(effective_x)
+	_update_visual(effective_lean)
 
 	if _locked_out:
 		_recover_timer -= delta
@@ -131,16 +155,20 @@ func reset(spawn_position: Vector2) -> void:
 	_recover_timer = 0.0
 	if visual:
 		visual.rotation = 0.0
+		visual.scale.y = 1.0
 		visual.modulate = normal_color
 
 
-## Tilts the character toward the current effective lean (0 while locked out,
-## so a wipeout visibly snaps the character upright) and tints it to flag
-## the lockout state - the only feedback for "how hard am I leaning right now".
-func _update_visual(effective_lean_x: float) -> void:
+## Tilts the character toward the current effective lean.x (0 while locked
+## out, so a wipeout visibly snaps the character upright), squashes/stretches
+## it toward effective lean.y (crouch tucking down, stand tall leaning up -
+## the visible half of "match your lean angle to the slope"), and tints it
+## to flag the lockout state.
+func _update_visual(effective_lean: Vector2) -> void:
 	if not visual:
 		return
-	visual.rotation = effective_lean_x * deg_to_rad(max_tilt_degrees)
+	visual.rotation = effective_lean.x * deg_to_rad(max_tilt_degrees)
+	visual.scale.y = 1.0 - effective_lean.y * max_crouch_scale
 	visual.modulate = locked_out_color if _locked_out else normal_color
 
 
