@@ -11,10 +11,17 @@ extends Node2D
 @onready var best_label: Label = %BestLabel
 @onready var speed_label: Label = %SpeedLabel
 @onready var restart_button: Button = %RestartButton
+@onready var camera: Camera2D = player.get_node("Camera2D")
 
 const PLAYER_GROUND_OFFSET: float = 40.0 # capsule height - keeps feet at the surface, matches Player's local origin-at-feet convention
 const END_ZONE_HEIGHT: float = 400.0
 const END_ZONE_MARGIN: float = 100.0 # back off from the very last keyframe so there's a flat runway after it
+
+const CAMERA_BASE_ZOOM: float = 0.85
+const CAMERA_MIN_ZOOM: float = 0.6 # zoomed out this far at CAMERA_ZOOM_SPEED_REF and above
+const CAMERA_ZOOM_SPEED_REF: float = 500.0 # px/s at which zoom reaches its minimum
+const CAMERA_LOOKAHEAD_MAX: float = 220.0 # px offset toward travel direction at full speed, so blind crests on the now-long course are readable
+const CAMERA_EASE: float = 0.08
 
 var _elapsed: float = 0.0
 var _timer_running: bool = false
@@ -46,6 +53,19 @@ func _process(delta: float) -> void:
 
 	var fall_tag: String = " [FALL]" if player.is_locked_out() else ""
 	speed_label.text = "Speed: %.1f px/s%s" % [player.current_speed, fall_tag]
+
+	_update_camera()
+
+
+func _update_camera() -> void:
+	var speed_t: float = clamp(player.current_speed / CAMERA_ZOOM_SPEED_REF, 0.0, 1.0)
+	var target_zoom: float = lerp(CAMERA_BASE_ZOOM, CAMERA_MIN_ZOOM, speed_t)
+	camera.zoom = camera.zoom.lerp(Vector2(target_zoom, target_zoom), CAMERA_EASE)
+
+	var lookahead: Vector2 = Vector2.ZERO
+	if player.velocity.length() > 10.0:
+		lookahead = player.velocity.normalized() * CAMERA_LOOKAHEAD_MAX * speed_t
+	camera.position = camera.position.lerp(lookahead, CAMERA_EASE)
 
 
 func _update_timer_label() -> void:
