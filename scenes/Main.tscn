@@ -83,7 +83,11 @@ shape = SubResource("CapsuleShape2D_player")
 
 [node name="Visual" type="Polygon2D" parent="Player"]
 color = Color(0.85, 0.25, 0.25, 1)
-polygon = PackedVector2Array(-16, -40, 16, -40, 16, 0, -16, 0)
+polygon = PackedVector2Array(-8, -60, 8, -60, 8, 0, -8, 0)
+
+[node name="Head" type="Polygon2D" parent="Player/Visual"]
+color = Color(0.85, 0.25, 0.25, 1)
+polygon = PackedVector2Array(-9, -76, 9, -76, 9, -60, -9, -60)
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
 zoom = Vector2(0.85, 0.85)

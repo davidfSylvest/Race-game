@@ -23,7 +23,13 @@ signal fell()
 @export var fall_speed_penalty: float = 0.2 # velocity multiplier applied on wipeout
 @export var recover_time: float = 0.6 # seconds of locked-out input after a wipeout
 
+@export_group("Lean Visual")
+@export var max_tilt_degrees: float = 35.0 # visual tilt at full effective lean, so you can see how hard you're leaning
+@export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
+@export var locked_out_color: Color = Color(0.4, 0.4, 0.45, 1) # tint while wiped out / lean is locked out
+
 @onready var joystick: Control = %Joystick
+@onready var visual: Node2D = $Visual
 
 var current_speed: float = 0.0
 
@@ -66,6 +72,8 @@ func _physics_process(delta: float) -> void:
 
 	current_speed = velocity.length()
 
+	_update_visual(effective_x)
+
 	if _locked_out:
 		_recover_timer -= delta
 		if _recover_timer <= 0.0:
@@ -76,6 +84,16 @@ func _get_lean_vector() -> Vector2:
 	if joystick and joystick.has_method("get_vector"):
 		return joystick.get_vector()
 	return Vector2.ZERO
+
+
+## Tilts the character toward the current effective lean (0 while locked out,
+## so a wipeout visibly snaps the character upright) and tints it to flag
+## the lockout state - the only feedback for "how hard am I leaning right now".
+func _update_visual(effective_lean_x: float) -> void:
+	if not visual:
+		return
+	visual.rotation = effective_lean_x * deg_to_rad(max_tilt_degrees)
+	visual.modulate = locked_out_color if _locked_out else normal_color
 
 
 func _update_fall_state(delta: float, lean_magnitude: float) -> void:
