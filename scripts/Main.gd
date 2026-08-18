@@ -6,16 +6,31 @@ extends Node2D
 @onready var player: CharacterBody2D = %Player
 @onready var joystick: Control = %Joystick
 @onready var end_zone: Area2D = %EndZone
+@onready var terrain: Node2D = %Terrain
 @onready var timer_label: Label = %TimerLabel
 @onready var speed_label: Label = %SpeedLabel
+@onready var restart_button: Button = %RestartButton
+
+const PLAYER_GROUND_OFFSET: float = 40.0 # capsule height - keeps feet at the surface, matches Player's local origin-at-feet convention
+const END_ZONE_HEIGHT: float = 400.0
+const END_ZONE_MARGIN: float = 100.0 # back off from the very last keyframe so there's a flat runway after it
 
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
+var _spawn_position: Vector2
 
 
 func _ready() -> void:
+	var spawn_x: float = terrain.spawn_x()
+	_spawn_position = Vector2(spawn_x, terrain.height_at(spawn_x) - PLAYER_GROUND_OFFSET)
+	player.global_position = _spawn_position
+
+	var end_x: float = terrain.course_end_x() - END_ZONE_MARGIN
+	end_zone.global_position = Vector2(end_x, terrain.height_at(end_x) - END_ZONE_HEIGHT / 2.0)
+
 	end_zone.body_entered.connect(_on_end_zone_body_entered)
+	restart_button.pressed.connect(_on_restart_pressed)
 	_update_timer_label()
 
 
@@ -48,3 +63,14 @@ func _on_end_zone_body_entered(body: Node) -> void:
 		_finished = true
 		_timer_running = false
 		print("Final time: %s (%.3f s)" % [_format_time(_elapsed), _elapsed])
+
+
+func _on_restart_pressed() -> void:
+	player.reset(_spawn_position)
+	var camera: Camera2D = player.get_node_or_null("Camera2D")
+	if camera:
+		camera.reset_smoothing()
+	_elapsed = 0.0
+	_timer_running = false
+	_finished = false
+	_update_timer_label()

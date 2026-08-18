@@ -1,76 +1,34 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/Player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/Main.gd" id="2_main"]
 [ext_resource type="Script" path="res://scripts/Joystick.gd" id="3_joystick"]
+[ext_resource type="Script" path="res://scripts/Terrain.gd" id="4_terrain"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_player"]
 radius = 16.0
 height = 40.0
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_endzone"]
-size = Vector2(40, 320)
+size = Vector2(40, 400)
 
 [node name="Main" type="Node2D"]
 script = ExtResource("2_main")
 
 [node name="Terrain" type="Node2D" parent="."]
-
-[node name="GroundFlatStart" type="StaticBody2D" parent="Terrain"]
-
-[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundFlatStart"]
-polygon = PackedVector2Array(-400, 600, 600, 600, 600, 900, -400, 900)
-
-[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundFlatStart"]
-color = Color(0.55, 0.55, 0.58, 1)
-polygon = PackedVector2Array(-400, 600, 600, 600, 600, 900, -400, 900)
-
-[node name="GroundDownhill" type="StaticBody2D" parent="Terrain"]
-
-[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundDownhill"]
-polygon = PackedVector2Array(600, 600, 1300, 1050, 1300, 1350, 600, 900)
-
-[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundDownhill"]
-color = Color(0.45, 0.47, 0.52, 1)
-polygon = PackedVector2Array(600, 600, 1300, 1050, 1300, 1350, 600, 900)
-
-[node name="GroundUphillCrest" type="StaticBody2D" parent="Terrain"]
-
-[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundUphillCrest"]
-polygon = PackedVector2Array(1300, 1050, 1800, 680, 1800, 980, 1300, 1350)
-
-[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundUphillCrest"]
-color = Color(0.52, 0.46, 0.46, 1)
-polygon = PackedVector2Array(1300, 1050, 1800, 680, 1800, 980, 1300, 1350)
-
-[node name="GroundDownhillPostCrest" type="StaticBody2D" parent="Terrain"]
-
-[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundDownhillPostCrest"]
-polygon = PackedVector2Array(1800, 680, 2100, 900, 2100, 1200, 1800, 980)
-
-[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundDownhillPostCrest"]
-color = Color(0.45, 0.47, 0.52, 1)
-polygon = PackedVector2Array(1800, 680, 2100, 900, 2100, 1200, 1800, 980)
-
-[node name="GroundFlatEnd" type="StaticBody2D" parent="Terrain"]
-
-[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Terrain/GroundFlatEnd"]
-polygon = PackedVector2Array(2100, 900, 2900, 900, 2900, 1200, 2100, 1200)
-
-[node name="Polygon2D" type="Polygon2D" parent="Terrain/GroundFlatEnd"]
-color = Color(0.55, 0.55, 0.58, 1)
-polygon = PackedVector2Array(2100, 900, 2900, 900, 2900, 1200, 2100, 1200)
+unique_name_in_owner = true
+script = ExtResource("4_terrain")
 
 [node name="EndZone" type="Area2D" parent="."]
 unique_name_in_owner = true
-position = Vector2(2800, 740)
+position = Vector2(0, 0)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="EndZone"]
 shape = SubResource("RectangleShape2D_endzone")
 
 [node name="EndZoneVisual" type="Polygon2D" parent="EndZone"]
 color = Color(0.3, 0.85, 0.4, 0.35)
-polygon = PackedVector2Array(-20, -160, 20, -160, 20, 160, -20, 160)
+polygon = PackedVector2Array(-20, -200, 20, -200, 20, 200, -20, 200)
 
 [node name="Player" type="CharacterBody2D" parent="."]
 unique_name_in_owner = true
@@ -127,3 +85,16 @@ offset_right = 280.0
 offset_bottom = -40.0
 mouse_filter = 2
 script = ExtResource("3_joystick")
+
+[node name="RestartButton" type="Button" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -140.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 64.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 20
+text = "Restart"

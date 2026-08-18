@@ -1,21 +1,29 @@
 extends CharacterBody2D
 
 ## Lean-based movement feel-test character.
-## Movement is horizontal (side-view course); gravity + slope collision
-## handle vertical motion and the downhill/crest speed transfer.
+## Movement is side-view. Lean force is applied along the actual ground
+## tangent (not a fixed world-horizontal axis), so the same lean input
+## behaves differently on a downhill vs an uphill: leaning into a downhill
+## compounds with gravity for extra push and a raised speed ceiling,
+## leaning up a slope fights gravity for reduced push and a lowered ceiling.
 
 signal fell()
 
 @export_group("Acceleration")
-@export var max_accel_constant: float = 900.0 # px/s^2 at full lean
-@export var friction_decay: float = 0.98 # multiplicative velocity decay applied every physics frame, lean or no lean
+@export var max_accel_constant: float = 900.0 # px/s^2 at full lean, applied along the ground tangent
+@export var friction_decay: float = 0.98 # multiplicative decay applied every physics frame to ground-speed, lean or no lean
 
 @export_group("Top Speed Curve")
-@export var top_speed_constant: float = 650.0 # px/s ceiling at full lean
+@export var top_speed_constant: float = 650.0 # px/s ceiling at full lean on flat ground
 @export var speed_exponent: float = 2.5 # exponential steepness of the lean -> top speed curve
 
 @export_group("Gravity")
 @export var gravity: float = 1600.0 # px/s^2, pulls the character down onto slopes
+
+@export_group("Slope Response")
+@export var slope_ceiling_bonus: float = 0.9 # how much a downhill raises (or uphill lowers) the speed ceiling; 0 = flat-ground behavior everywhere
+@export var slope_ceiling_floor: float = 0.2 # uphill can never shrink the ceiling below this fraction of its flat-ground value
+@export var gravity_slope_assist: float = 0.2 # gentle passive drift downhill even with no lean input; kept small so lean stays the dominant force, not gravity
 
 @export_group("Fall / Wipeout")
 @export var fall_threshold: float = 0.9 # lean magnitude that starts the wipeout clock
@@ -51,22 +59,49 @@ func _physics_process(delta: float) -> void:
 
 	var effective_magnitude: float = 0.0 if _locked_out else lean_magnitude
 	var effective_x: float = 0.0 if _locked_out else lean.x
+	var dir_sign: float = signf(effective_x) if absf(effective_x) > 0.001 else 0.0
 
-	if effective_magnitude > 0.0:
+	# Ground tangent: the direction "forward along the slope" (matches world
+	# +x on flat ground). Airborne, there's no surface to push against, so
+	# lean falls back to pure horizontal, same as flat ground.
+	var on_floor: bool = is_on_floor()
+	var tangent: Vector2 = Vector2.RIGHT
+	if on_floor:
+		var normal: Vector2 = get_floor_normal()
+		tangent = Vector2(-normal.y, normal.x).normalized()
+
+	# Positive = leaning in the downhill direction of the current slope,
+	# negative = leaning into the uphill face. Zero on flat ground or airborne.
+	var forward_slope: float = dir_sign * tangent.y if on_floor else 0.0
+
+	if effective_magnitude > 0.0 and dir_sign != 0.0:
 		var accel_force: float = effective_magnitude * max_accel_constant
-		var dir_sign: float = signf(effective_x) if absf(effective_x) > 0.001 else 0.0
 		var speed_ratio: float = pow(effective_magnitude, speed_exponent)
-		var max_speed_this_frame: float = speed_ratio * top_speed_constant
+		var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
+		var max_speed_this_frame: float = speed_ratio * top_speed_constant * slope_multiplier
 
-		# Accelerate toward the ceiling this lean unlocks, but never yank
-		# existing momentum down if it's already above that ceiling -
-		# velocity only bleeds off via friction_decay, never an input clamp.
-		if dir_sign != 0.0 and absf(velocity.x) < max_speed_this_frame:
-			velocity.x += dir_sign * accel_force * delta
-			velocity.x = clamp(velocity.x, -max_speed_this_frame, max_speed_this_frame)
+		# Accelerate toward the ceiling this lean+slope unlocks, but never yank
+		# existing momentum down if it's already above that ceiling - velocity
+		# only bleeds off via friction_decay, never an input clamp.
+		var ground_speed: float = velocity.dot(tangent)
+		if absf(ground_speed) < max_speed_this_frame:
+			velocity += tangent * dir_sign * accel_force * delta
+			var new_ground_speed: float = velocity.dot(tangent)
+			var clamped: float = clamp(new_ground_speed, -max_speed_this_frame, max_speed_this_frame)
+			velocity += tangent * (clamped - new_ground_speed)
 
+	# Gravity always pulls straight down (needed for airborne falls and floor
+	# detection). On top of that, an explicit tangential assist makes the
+	# downhill/uphill pull on your ground-speed strong and tunable, rather
+	# than relying entirely on incidental floor-collision sliding.
 	velocity.y += gravity * delta
-	velocity.x *= friction_decay
+	if on_floor:
+		velocity += tangent * (tangent.y * gravity * gravity_slope_assist * delta)
+
+	# Friction bleeds ground-speed (the tangential component) every frame,
+	# lean or no lean; it never touches the perpendicular/airborne component.
+	var ground_speed_now: float = velocity.dot(tangent)
+	velocity += tangent * (ground_speed_now * (friction_decay - 1.0))
 
 	move_and_slide()
 
@@ -84,6 +119,19 @@ func _get_lean_vector() -> Vector2:
 	if joystick and joystick.has_method("get_vector"):
 		return joystick.get_vector()
 	return Vector2.ZERO
+
+
+## Resets position/velocity/state for an in-game restart (no scene reload).
+func reset(spawn_position: Vector2) -> void:
+	global_position = spawn_position
+	velocity = Vector2.ZERO
+	current_speed = 0.0
+	_over_threshold_time = 0.0
+	_locked_out = false
+	_recover_timer = 0.0
+	if visual:
+		visual.rotation = 0.0
+		visual.modulate = normal_color
 
 
 ## Tilts the character toward the current effective lean (0 while locked out,
