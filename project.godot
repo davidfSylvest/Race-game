@@ -9,7 +9,7 @@ config_version=5
 
 config/name="Race Game"
 run/main_scene="res://scenes/Main.tscn"
-config/features=PackedStringArray("4.3")
+config/features=PackedStringArray("4.7")
 config/icon="res://icon.svg"
 
 [display]
