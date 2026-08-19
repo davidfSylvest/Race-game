@@ -112,9 +112,9 @@ overrode player input) that a headless smoke test caught before commit.
   stick down-and-forward on a downhill and up-and-forward on an uphill is
   mechanically rewarded over just holding a flat push-forward. Getting this
   wrong isn't a hard clamp to zero — it's a smooth effectiveness penalty.
-- Sustained lean magnitude above a threshold triggers a wipeout: speed cut,
-  input locked out briefly, then control returns. No scene reload, no
-  death — the timer keeps running.
+- There is no fall/wipeout mechanic — leaning hard, in any direction, for
+  any length of time, never cuts speed or locks out input. The only
+  consequence of a bad lean is the smooth effectiveness penalty above.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 

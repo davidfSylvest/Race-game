@@ -51,8 +51,7 @@ func _process(delta: float) -> void:
 		_elapsed += delta
 		_update_timer_label()
 
-	var fall_tag: String = " [FALL]" if player.is_locked_out() else ""
-	speed_label.text = "Speed: %.1f px/s%s" % [player.current_speed, fall_tag]
+	speed_label.text = "Speed: %.1f px/s" % player.current_speed
 
 	_update_camera()
 
@@ -94,9 +93,7 @@ func _on_end_zone_body_entered(body: Node) -> void:
 
 func _on_restart_pressed() -> void:
 	player.reset(_spawn_position)
-	var camera: Camera2D = player.get_node_or_null("Camera2D")
-	if camera:
-		camera.reset_smoothing()
+	camera.reset_smoothing()
 	_elapsed = 0.0
 	_timer_running = false
 	_finished = false

@@ -11,8 +11,6 @@ extends CharacterBody2D
 ## is mechanically rewarded over just holding a flat push-forward - it's
 ## not "find the right force forward," it's "match the hill."
 
-signal fell()
-
 @export_group("Acceleration")
 @export var max_accel_constant: float = 900.0 # px/s^2 at full lean, applied along the ground tangent
 @export var friction_decay: float = 0.98 # multiplicative decay applied every physics frame to ground-speed, lean or no lean
@@ -32,26 +30,15 @@ signal fell()
 @export_group("Lean Alignment")
 @export var alignment_influence: float = 1.0 # 0 = only raw lean magnitude matters (old behavior); 1 = full angle-matching (see below)
 
-@export_group("Fall / Wipeout")
-@export var fall_threshold: float = 0.9 # lean magnitude that starts the wipeout clock
-@export var fall_sustain_time: float = 0.4 # seconds of sustained over-lean before wiping out
-@export var fall_speed_penalty: float = 0.2 # velocity multiplier applied on wipeout
-@export var recover_time: float = 0.6 # seconds of locked-out input after a wipeout
-
 @export_group("Lean Visual")
 @export var max_tilt_degrees: float = 35.0 # visual tilt (forward/back) at full effective lean.x
 @export var max_crouch_scale: float = 0.35 # vertical squash/stretch at full effective lean.y - crouch tucking down, stand tall leaning up, so the angle-matching mechanic is visible, not just felt
 @export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
-@export var locked_out_color: Color = Color(0.4, 0.4, 0.45, 1) # tint while wiped out / lean is locked out
 
 @onready var joystick: Control = %Joystick
 @onready var visual: Node2D = $Visual
 
 var current_speed: float = 0.0
-
-var _over_threshold_time: float = 0.0
-var _locked_out: bool = false
-var _recover_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -61,14 +48,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	var lean: Vector2 = _get_lean_vector()
-	var lean_magnitude: float = clamp(lean.length(), 0.0, 1.0)
-
-	# Fall risk is about raw stick deflection (any direction) - overcommitting
-	# your weight is risky regardless of whether you aimed it well.
-	_update_fall_state(delta, lean_magnitude)
-
-	var effective_lean: Vector2 = Vector2.ZERO if _locked_out else lean
-	var dir_sign: float = signf(effective_lean.x) if absf(effective_lean.x) > 0.001 else 0.0
+	var dir_sign: float = signf(lean.x) if absf(lean.x) > 0.001 else 0.0
 
 	# Ground tangent: the direction "forward along the slope" (matches world
 	# +x on flat ground). Airborne, there's no surface to push against, so
@@ -94,8 +74,8 @@ func _physics_process(delta: float) -> void:
 		# same push aimed badly gives less, never below 0 (a wrong-angle
 		# lean just loses effectiveness, it doesn't reverse or punish you).
 		var target_dir: Vector2 = tangent if dir_sign > 0.0 else -tangent
-		var aligned_magnitude: float = clamp(effective_lean.dot(target_dir), 0.0, 1.0)
-		var raw_magnitude: float = clamp(effective_lean.length(), 0.0, 1.0)
+		var aligned_magnitude: float = clamp(lean.dot(target_dir), 0.0, 1.0)
+		var raw_magnitude: float = clamp(lean.length(), 0.0, 1.0)
 		var directional_magnitude: float = lerp(raw_magnitude, aligned_magnitude, alignment_influence)
 
 		if directional_magnitude > 0.0:
@@ -131,12 +111,7 @@ func _physics_process(delta: float) -> void:
 
 	current_speed = velocity.length()
 
-	_update_visual(effective_lean)
-
-	if _locked_out:
-		_recover_timer -= delta
-		if _recover_timer <= 0.0:
-			_locked_out = false
+	_update_visual(lean)
 
 
 func _get_lean_vector() -> Vector2:
@@ -150,45 +125,18 @@ func reset(spawn_position: Vector2) -> void:
 	global_position = spawn_position
 	velocity = Vector2.ZERO
 	current_speed = 0.0
-	_over_threshold_time = 0.0
-	_locked_out = false
-	_recover_timer = 0.0
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0
 		visual.modulate = normal_color
 
 
-## Tilts the character toward the current effective lean.x (0 while locked
-## out, so a wipeout visibly snaps the character upright), squashes/stretches
-## it toward effective lean.y (crouch tucking down, stand tall leaning up -
-## the visible half of "match your lean angle to the slope"), and tints it
-## to flag the lockout state.
-func _update_visual(effective_lean: Vector2) -> void:
+## Tilts the character toward the current lean.x, squashes/stretches it
+## toward lean.y (crouch tucking down, stand tall leaning up - the visible
+## half of "match your lean angle to the slope").
+func _update_visual(lean: Vector2) -> void:
 	if not visual:
 		return
-	visual.rotation = effective_lean.x * deg_to_rad(max_tilt_degrees)
-	visual.scale.y = 1.0 - effective_lean.y * max_crouch_scale
-	visual.modulate = locked_out_color if _locked_out else normal_color
-
-
-func _update_fall_state(delta: float, lean_magnitude: float) -> void:
-	if lean_magnitude > fall_threshold:
-		_over_threshold_time += delta
-	else:
-		_over_threshold_time = 0.0
-
-	if not _locked_out and _over_threshold_time > fall_sustain_time:
-		_trigger_fall()
-
-
-func _trigger_fall() -> void:
-	velocity *= fall_speed_penalty
-	_locked_out = true
-	_recover_timer = recover_time
-	_over_threshold_time = 0.0
-	fell.emit()
-
-
-func is_locked_out() -> bool:
-	return _locked_out
+	visual.rotation = lean.x * deg_to_rad(max_tilt_degrees)
+	visual.scale.y = 1.0 - lean.y * max_crouch_scale
+	visual.modulate = normal_color
