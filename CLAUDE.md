@@ -90,7 +90,7 @@ overrode player input) that a headless smoke test caught before commit.
 - `scripts/Player.gd` — the physics core. All movement tuning lives here as
   `@export` vars grouped by concern (Acceleration, Top Speed Curve,
   Gravity, Slope Response, Lean Alignment, Landing/Launch Quality, Air
-  Control, Jump, Chain, Flow Meter, Lean Visual). `reset(spawn_position)`
+  Control, Jump, Chain, Flow Meter, Ball Visual). `reset(spawn_position)`
   re-centers state for the in-game restart — no scene reload. `jump()` is
   the public entry point for the JUMP button (grounded-or-coyote only, with
   buffering — see Movement design below); `landing_event_id`/
@@ -240,9 +240,9 @@ overrode player input) that a headless smoke test caught before commit.
   landing once and coasting.
 - Landing and launch quality each drive a brief one-shot visual (squash on
   a rough landing, stretch on a clean launch, both decaying back to
-  neutral in a fraction of a second) on top of the lean-driven crouch/
-  stand, so an impact/pop actually reads as a physical event instead of
-  just a speed number changing a moment later. The same two events also
+  neutral in a fraction of a second), so an impact/pop actually reads as a
+  physical event instead of just a speed number changing a moment later.
+  The same two events also
   drive camera feedback in Main.gd: a rough landing shakes `Camera2D.offset`
   (not `.position`, so the jolt is instant and independent of the eased
   lookahead lerp), and a clean launch briefly zooms the camera out

@@ -78,12 +78,11 @@ extends CharacterBody2D
 @export var flow_speed_bonus: float = 0.3 # +this fraction of top_speed_constant at flow = 1.0
 @export var flow_accel_bonus: float = 0.15 # +this fraction of max_accel_constant at flow = 1.0
 
-@export_group("Lean Visual")
-@export var max_tilt_degrees: float = 35.0 # visual tilt (forward/back) at full effective lean.x
-@export var max_crouch_scale: float = 0.35 # vertical squash/stretch at full effective lean.y - crouch tucking down, stand tall leaning up, so the angle-matching mechanic is visible, not just felt
+@export_group("Ball Visual")
+@export var ball_radius: float = 20.0 # px, matches the Visual/CollisionShape2D circle in Main.tscn - converts ground speed into a physically-plausible rolling rotation rate (rolling without slipping: angular velocity = velocity.x / radius), replacing the old humanoid's lean-angle tilt now that there's no torso to tilt
 @export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
 @export var flow_color: Color = Color(1.0, 0.75, 0.15, 1) # blended in as Flow rises toward 1.0 - the HUD bar tells you the number, but the character itself should visibly light up with it too, since Flow is a moment-to-moment feel state, not just a stat
-@export var max_landing_squash: float = 0.4 # extra one-shot squash on a completely mismatched landing, on top of the lean-driven crouch - a rough landing should visibly read as an impact, a clean one barely shows it
+@export var max_landing_squash: float = 0.4 # extra one-shot squash on a completely mismatched landing - a rough landing should visibly read as an impact, a clean one barely shows it
 @export var landing_squash_decay_rate: float = 3.0 # per second, how fast the squash springs back out
 @export var max_launch_stretch: float = 0.25 # brief upward stretch on takeoff, scaled by launch quality - a clean pop off a crest should look like one
 @export var launch_stretch_decay_rate: float = 4.0 # per second, how fast the stretch settles back out
@@ -110,6 +109,7 @@ var _coyote_timer: float = 999.0 # seconds since last on a floor, any cause (jum
 var _jump_buffer_remaining: float = 0.0 # seconds left in which a landing should immediately fire the jump that was pressed too early - see jump_buffer_time above
 var _was_in_boost_zone: bool = false # edge-detects entering a boost pad, same idea as _was_on_floor for landings
 var _was_in_launch_pad_zone: bool = false # ditto, for the launch pad
+var _roll_angle: float = 0.0 # accumulated visual spin, radians - see ball_radius above
 
 
 func _ready() -> void:
@@ -272,7 +272,13 @@ func _physics_process(delta: float) -> void:
 
 	current_speed = velocity.length()
 
-	_update_visual(lean)
+	# Rolling-without-slipping: angular velocity = velocity.x / radius. Uses
+	# world-x rather than the ground-tangent component so the ball still
+	# visibly spins while airborne (matching its actual horizontal drift),
+	# not just while grounded.
+	_roll_angle += (velocity.x / ball_radius) * delta
+
+	_update_visual()
 
 
 ## One-shot speed adjustment at the instant of touchdown: how well does the
@@ -397,20 +403,24 @@ func reset(spawn_position: Vector2) -> void:
 	_was_in_launch_pad_zone = false
 	_landing_squash = 0.0
 	_launch_stretch = 0.0
+	_roll_angle = 0.0
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0
 		visual.modulate = normal_color
 
 
-## Tilts the character toward the current lean.x, squashes/stretches it
-## toward lean.y (crouch tucking down, stand tall leaning up - the visible
-## half of "match your lean angle to the slope"), and layers brief one-shot
-## impact/pop effects for landing and launch quality so those read as
-## actual physical events, not just a speed change a moment later.
-func _update_visual(lean: Vector2) -> void:
+## Spins the ball to match its actual ground speed (rolling without
+## slipping - see _roll_angle above), replacing the old humanoid's lean-
+## angle tilt: a ball doesn't lean, but it should visibly roll at a rate
+## and direction that matches how it's actually moving, which reads as
+## "matching the hill" just as clearly as the old tilt did. Layers brief
+## one-shot impact/pop effects for landing and launch quality on top so
+## those still read as actual physical events, not just a speed change a
+## moment later.
+func _update_visual() -> void:
 	if not visual:
 		return
-	visual.rotation = lean.x * deg_to_rad(max_tilt_degrees)
-	visual.scale.y = clamp(1.0 - lean.y * max_crouch_scale - _landing_squash + _launch_stretch, 0.3, 1.6)
+	visual.rotation = _roll_angle
+	visual.scale.y = clamp(1.0 - _landing_squash + _launch_stretch, 0.3, 1.6)
 	visual.modulate = normal_color.lerp(flow_color, flow)

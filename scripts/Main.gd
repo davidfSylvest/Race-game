@@ -17,7 +17,7 @@ extends Node2D
 @onready var jump_button: Button = %JumpButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 
-const PLAYER_GROUND_OFFSET: float = 40.0 # capsule height - keeps feet at the surface, matches Player's local origin-at-feet convention
+const PLAYER_GROUND_OFFSET: float = 40.0 # ball diameter (2x Player.ball_radius) - keeps the ball's bottom at the surface, matches Player's local origin-at-ground-contact convention
 const END_ZONE_HEIGHT: float = 400.0
 const END_ZONE_MARGIN: float = 100.0 # back off from the very last keyframe so there's a flat runway after it
 
