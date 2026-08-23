@@ -3,9 +3,8 @@
 A Godot 2D mobile prototype whose entire purpose is testing the *feel* of a
 lean-based movement system on hilly terrain. It is explicitly not a game yet:
 no menus, no title screen, no results screen, no save system, no
-ghost/replay. Gray-box art only (procedurally generated colored polygons).
-Do not add any of the "DO NOT BUILD" items below unless the user explicitly
-asks for that specific thing in that specific message.
+ghost/replay. Do not add any of the "DO NOT BUILD" items below unless the
+user explicitly asks for that specific thing in that specific message.
 
 There are now two levels (the user explicitly asked for a second course, so
 that item moved out of "DO NOT BUILD" - see the two-level architecture note
@@ -13,6 +12,17 @@ under Architecture). That's a deliberate, one-time exception to the rule
 below, not a sign the rule has loosened generally: still don't add a third
 level, a level-select menu screen, or anything else on the DO NOT BUILD list
 unless asked for that specific thing again.
+
+Same story with visuals: the user explicitly asked to "greatly improve the
+textures, shading, lighting, and models," so the old "gray-box art only" line
+above is gone and a real lighting/shading pass now exists - see "Visual
+Presentation" under Architecture. That's still scoped to what was asked
+(procedural shading/lighting/depth cues, not an art-asset pipeline - no
+external image files were added, see that section for why), not a general
+license to keep adding visual scope. Everything else in this file's
+minimalism stance (no UI/menu/persistence scope creep, headless-only
+validation, don't add DO NOT BUILD items unasked) still applies exactly as
+before.
 
 ## Godot version: 4.7.1 — always, no exceptions
 
@@ -229,6 +239,84 @@ overrode player input) that a headless smoke test caught before commit.
   before), consistent with the old bouncing having been quietly costing
   speed through the landing-quality mismatch penalty on every one of those
   unwanted bounces.
+
+### Visual Presentation (textures/shading/lighting)
+
+The user explicitly asked to "greatly improve the textures, shading,
+lighting, and models" for this to "look amazing" - this section is the
+result. Deliberately no external image assets were added (no new binary
+files, no `.import` sidecars to babysit alongside the `.uid`/`config/features`
+checks above) - everything here is procedural, built from GDScript at
+runtime the same way Terrain.gd already builds its ground polygons, so both
+levels get it for free with zero duplication and there's nothing for the
+wrong-Godot-version risk at the top of this file to corrupt.
+
+- **Terrain shading** (`Terrain._add_visual_segment()`): each ground
+  Polygon2D now bakes per-vertex colors instead of one flat fill - the top
+  (visible) curve vertices get `color.lightened(top_edge_lighten)`, the
+  buried bottom-edge vertices get `color.darkened(bottom_edge_darken)`,
+  faking a "lit from directly above" gradient on every zone color
+  automatically with zero shader cost (`Polygon2D.vertex_colors`, baked
+  once at build time, not a per-frame cost). `_build_ground()` also lays a
+  single continuous `Line2D` along the whole course's `_top_points` as a
+  warm, translucent rim highlight - one node for the entire course rather
+  than per-segment, so there's no seam at zone-color boundaries.
+- **Ball shading** (`Player._make_shading()`/`_make_shadow()`/`_make_glow()`,
+  all built in `_ready()`, not placed in either .tscn): three additions,
+  each a plain sibling of the existing `Visual` node so none of them
+  interfere with `Visual`'s own rotation/squash-stretch animation.
+  - A fixed-direction highlight + undershade (`_shading`) sells a "glossy
+    sphere" look. Critically, this lives OUTSIDE `Visual` - if it were a
+    child of `Visual` it would spin with `_roll_angle` every frame, which
+    would look like the light source orbits the ball as it rolls instead of
+    staying put. `_update_visual()` still has to counter-scale it
+    (`1.0 / visual.scale.y`) so a landing squash/launch stretch doesn't
+    warp the highlight into an oval - the impact should read on the ball's
+    silhouette, not smear the fixed light cue.
+  - A squashed shadow ellipse (`_shadow`) is pinned under the ball's current
+    x at actual ground height (`terrain.height_at(x) - position.y`, which is
+    ~0 when grounded per the floor_snap_length gap notes above), shrinking
+    and fading out with air height. Classic 2D-platformer depth cue - lets a
+    jump's height and landing spot read at a glance without needing real
+    3D shadow casting.
+  - A real `PointLight2D` (`_glow`, ADD blend, a procedurally-generated
+    radial `GradientTexture2D` rather than an image file) whose color tracks
+    the exact same `normal_color.lerp(flow_color, flow)` tint the ball's
+    `modulate` already used - so building Flow doesn't just recolor the
+    ball, it visibly warms the light it casts on nearby ground. Ties a new
+    visual system to an existing gameplay stat instead of decorating in a
+    vacuum.
+- **Background** (new `scripts/Background.gd`, instanced by `Main._ready()`
+  and `move_child()`'d to index 0 so it draws behind Terrain/Player - same
+  "one script, every scene" pattern as Terrain.gd, so neither .tscn needs
+  its own copy): a screen-fixed sky gradient in a `CanvasLayer` at
+  `layer = -10` (screen-space, so it always fills the viewport regardless of
+  camera zoom/position - a world-space node would need constant resizing to
+  guarantee full coverage) plus two `ParallaxBackground`/`ParallaxLayer`
+  rows of hill silhouettes at different `motion_scale` for depth. Each hill
+  shape sums a couple of sine harmonics over one `TILE_WIDTH` period and
+  relies on `motion_mirroring` to repeat it forever along the course's
+  x-axis - the harmonics are exactly periodic on that width by construction
+  (`sin(h * TAU * x / TILE_WIDTH)` is identical at `x=0` and `x=TILE_WIDTH`
+  for any integer `h`), so the tile repeats with no visible seam without
+  needing a hand-authored, course-length-matched shape.
+- **Ambient tint**: a `CanvasModulate` added by `Main._ready()` (world-space,
+  alongside Background) applies a very subtle warm-neutral multiply over
+  the whole scene. `CanvasModulate` only affects nodes on its own canvas,
+  not separate `CanvasLayer`s, so the UI (already its own `CanvasLayer` for
+  unrelated reasons) is untouched - confirmed headlessly by walking
+  `Main`'s child list and checking `UI` sits in its own layer, not under the
+  modulated world-space branch.
+- Verification here is necessarily partial: this environment has no
+  display, so headless testing can confirm the scene builds without errors,
+  the new nodes exist with sane values (shadow alpha shrinking with height,
+  glow color actually shifting toward `flow_color` as Flow rises, tile
+  seams matching exactly at the math level), and - most importantly - that
+  none of it touched the physics/collision path (re-ran the full 4-policy
+  benchmark on both levels after this pass; every number matched the
+  pre-visual-pass baseline exactly, confirming zero physics regression).
+  Whether it actually looks good is necessarily the user's own call on their
+  device, the same limitation noted for the LevelButton fix above.
 
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)

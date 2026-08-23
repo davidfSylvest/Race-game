@@ -28,6 +28,12 @@ extends Node2D
 @export var ice_friction_scale: float = 0.06 # fraction of normal friction loss on ice - 0.06 means ~94% less grip than normal ground
 @export var mud_friction_scale: float = 6.5 # multiple of normal friction loss in mud
 
+@export_group("Ground Shading")
+@export var top_edge_lighten: float = 0.22 # how much brighter the top (sunlit) curve vertices are than the flat zone color - baked as Polygon2D per-vertex colors, no shader needed, so it's cheap on mobile and works with every zone color automatically
+@export var bottom_edge_darken: float = 0.4 # how much darker the bottom (shadowed/buried) vertices are than the flat zone color
+@export var rim_highlight_color: Color = Color(1, 0.98, 0.85, 0.55) # warm, translucent - drawn as a single Line2D tracing the whole course's surface, like sunlight catching the very top edge
+@export var rim_highlight_width: float = 5.0
+
 ## Each entry: {type: "ice"/"mud"/"boost"/"launch"/"bhop"/"flow", start: float, end: float}.
 ## Populated per-level in _configure_level(). Checked in this same order
 ## wherever precedence could matter (only relevant if two zones overlap -
@@ -392,6 +398,19 @@ func _build_ground() -> void:
 				break
 		_add_visual_segment(body, seg_start, seg_end, color, bottom_y)
 
+	# One continuous highlight along the whole course's surface, on top of
+	# every zone-colored segment - simplest way to sell "sunlight catching
+	# the top edge" without seams at zone boundaries or a per-segment shader.
+	var rim := Line2D.new()
+	rim.points = _top_points
+	rim.width = rim_highlight_width
+	rim.default_color = rim_highlight_color
+	rim.joint_mode = Line2D.LINE_JOINT_ROUND
+	rim.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	rim.end_cap_mode = Line2D.LINE_CAP_ROUND
+	rim.antialiased = true
+	body.add_child(rim)
+
 
 func _add_visual_segment(body: Node, seg_start: float, seg_end: float, color: Color, bottom_y: float) -> void:
 	var start_index: int = 0
@@ -402,10 +421,23 @@ func _add_visual_segment(body: Node, seg_start: float, seg_end: float, color: Co
 		end_index += 1
 
 	var points: PackedVector2Array = _top_points.slice(start_index, end_index + 1)
+	var top_point_count: int = points.size()
 	points.append(Vector2(points[points.size() - 1].x, bottom_y))
 	points.append(Vector2(points[0].x, bottom_y))
 
+	# Per-vertex colors fake a "lit from directly above" gradient - lighter on
+	# the visible top curve, darker toward the buried bottom edge - cheap
+	# (baked once here, no shader) and works with any zone's base color
+	# automatically. Uniform `color` is left white so it doesn't double-tint
+	# on top of these.
+	var vertex_colors: PackedColorArray = PackedColorArray()
+	vertex_colors.resize(points.size())
+	var lit: Color = color.lightened(top_edge_lighten)
+	var shaded: Color = color.darkened(bottom_edge_darken)
+	for i in range(points.size()):
+		vertex_colors[i] = lit if i < top_point_count else shaded
+
 	var visual := Polygon2D.new()
 	visual.polygon = points
-	visual.color = color
+	visual.vertex_colors = vertex_colors
 	body.add_child(visual)

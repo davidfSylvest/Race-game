@@ -71,6 +71,23 @@ var _new_best_flash_timer: float = 0.0
 
 
 func _ready() -> void:
+	# Built here (not placed in the .tscn) and pushed to the very back of the
+	# tree so it draws behind Terrain/Player - same "one script instanced by
+	# both scenes" pattern Terrain.gd itself uses, so neither level's scene
+	# file needs its own copy.
+	var background: Node2D = preload("res://scripts/Background.gd").new()
+	add_child(background)
+	move_child(background, 0)
+
+	# Subtle warm-neutral tint over the whole world-space canvas - just enough
+	# to take the edge off flat gray-box color, short of anything that reads
+	# as "filtered." CanvasModulate only affects its own canvas layer, so the
+	# UI (a separate CanvasLayer) is untouched - the HUD stays full-contrast.
+	var ambient := CanvasModulate.new()
+	ambient.color = Color(1.0, 0.97, 0.91, 1.0)
+	add_child(ambient)
+	move_child(ambient, 1)
+
 	var spawn_x: float = terrain.spawn_x()
 	_spawn_position = Vector2(spawn_x, terrain.height_at(spawn_x) - PLAYER_GROUND_OFFSET)
 	player.global_position = _spawn_position

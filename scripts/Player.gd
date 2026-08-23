@@ -92,9 +92,26 @@ extends CharacterBody2D
 @export var max_launch_stretch: float = 0.25 # brief upward stretch on takeoff, scaled by launch quality - a clean pop off a crest should look like one
 @export var launch_stretch_decay_rate: float = 4.0 # per second, how fast the stretch settles back out
 
+@export_group("Ball Shading")
+@export var highlight_color: Color = Color(1, 1, 0.96, 0.7) # small fixed-position shine, upper-left - lives OUTSIDE Visual (which spins with _roll_angle) so the implied light direction stays put while the ball rolls under it, same trick real sprite-based "3D-looking" balls use
+@export var undershade_color: Color = Color(0.05, 0.02, 0.05, 0.22) # soft dark patch, lower-right, rounds out the sphere illusion opposite the highlight
+
+@export_group("Ground Shadow")
+@export var shadow_color: Color = Color(0.05, 0.05, 0.08, 0.4) # squashed ellipse under the ball, pinned to the ground under its current x regardless of air height - the fastest way to read "how high up am I" and "where will I land" at a glance
+@export var shadow_max_fade_height: float = 160.0 # px of airborne height at which the shadow has fully shrunk/faded
+@export var shadow_min_scale: float = 0.4 # smallest the shadow shrinks to at shadow_max_fade_height, before disappearing
+
+@export_group("Glow Light")
+@export var glow_enabled: bool = true
+@export var glow_energy: float = 1.1
+@export var glow_texture_scale: float = 3.2 # multiple of ball_radius the soft light texture spans
+
 @onready var joystick: Control = %Joystick
 @onready var visual: Node2D = $Visual
 @onready var terrain: Node2D = %Terrain
+@onready var _shadow: Polygon2D = _make_shadow()
+@onready var _shading: Node2D = _make_shading()
+@onready var _glow: PointLight2D = _make_glow()
 
 var current_speed: float = 0.0
 var flow: float = 0.0 # 0..1, see "Flow Meter" above
@@ -120,6 +137,82 @@ var _roll_angle: float = 0.0 # accumulated visual spin, radians - see ball_radiu
 func _ready() -> void:
 	floor_max_angle = deg_to_rad(55.0)
 	floor_snap_length = floor_snap_length_wide
+
+
+## Squashed ellipse pinned to the ground under the ball's current x, sized/
+## faded by air height in _update_visual(). Built here (not in the .tscn) so
+## both levels get it for free, same pattern Terrain.gd already uses for its
+## own procedural visuals.
+func _make_shadow() -> Polygon2D:
+	var shadow := Polygon2D.new()
+	shadow.polygon = _circle_polygon(ball_radius, 16)
+	shadow.scale.y = 0.4
+	shadow.color = shadow_color
+	shadow.z_index = -1
+	add_child(shadow)
+	return shadow
+
+
+## Fixed-direction highlight + undershade, living OUTSIDE Visual so it never
+## rotates with the roll animation - see highlight_color above for why that
+## matters. Positioned at the same (0, -20) offset as Visual/CollisionShape2D
+## so it lines up with the ball regardless of ball_radius tuning.
+func _make_shading() -> Node2D:
+	var shading := Node2D.new()
+	shading.position = Vector2(0, -20)
+	shading.z_index = 1
+
+	var highlight := Polygon2D.new()
+	highlight.polygon = _circle_polygon(ball_radius * 0.38, 12)
+	highlight.position = Vector2(-ball_radius * 0.32, -ball_radius * 0.32)
+	highlight.color = highlight_color
+	shading.add_child(highlight)
+
+	var undershade := Polygon2D.new()
+	undershade.polygon = _circle_polygon(ball_radius * 0.55, 14)
+	undershade.position = Vector2(ball_radius * 0.28, ball_radius * 0.32)
+	undershade.color = undershade_color
+	shading.add_child(undershade)
+
+	add_child(shading)
+	return shading
+
+
+## Soft additive glow that warms toward flow_color as Flow builds (see
+## _update_visual()) - a real Light2D, not just a tint, so it actually casts
+## light onto nearby ground segments, not merely the ball itself.
+func _make_glow() -> PointLight2D:
+	var glow := PointLight2D.new()
+	glow.position = Vector2(0, -20)
+	glow.enabled = glow_enabled
+	glow.energy = glow_energy
+	glow.blend_mode = Light2D.BLEND_MODE_ADD
+	glow.texture_scale = glow_texture_scale
+	glow.texture = _make_glow_texture()
+	add_child(glow)
+	return glow
+
+
+func _make_glow_texture() -> GradientTexture2D:
+	var gradient := Gradient.new()
+	gradient.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+	gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	var tex := GradientTexture2D.new()
+	tex.gradient = gradient
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 128
+	tex.height = 128
+	return tex
+
+
+func _circle_polygon(radius: float, segments: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in range(segments):
+		var angle: float = TAU * i / segments
+		pts.append(Vector2(cos(angle), sin(angle)) * radius)
+	return pts
 
 
 func _physics_process(delta: float) -> void:
@@ -452,4 +545,27 @@ func _update_visual() -> void:
 		return
 	visual.rotation = _roll_angle
 	visual.scale.y = clamp(1.0 - _landing_squash + _launch_stretch, 0.3, 1.6)
-	visual.modulate = normal_color.lerp(flow_color, flow)
+	var tint: Color = normal_color.lerp(flow_color, flow)
+	visual.modulate = tint
+
+	# Shadow stays pinned to the ground directly under the ball's x, at
+	# whatever height that actually is right now (0 when grounded, since the
+	# body's own origin already sits at ground level - see the "gap" note in
+	# CLAUDE.md's floor_snap_length history) - shrinks/fades with air height
+	# so a jump's height and landing spot both read at a glance.
+	if _shadow and terrain:
+		var air_height: float = terrain.height_at(position.x) - position.y
+		air_height = max(air_height, 0.0)
+		var fade_t: float = clamp(air_height / shadow_max_fade_height, 0.0, 1.0)
+		_shadow.position.y = air_height
+		_shadow.scale.x = lerp(1.0, shadow_min_scale, fade_t)
+		_shadow.modulate.a = 1.0 - fade_t
+
+	if _glow:
+		_glow.color = tint
+
+	if _shading:
+		# Undoes visual's own squash/stretch scale so the fixed-direction
+		# highlight doesn't warp into an oval during a landing/launch pop -
+		# it should read as a light staying still, not part of the impact.
+		_shading.scale.y = 1.0 / visual.scale.y if visual.scale.y != 0.0 else 1.0
