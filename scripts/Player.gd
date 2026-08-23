@@ -42,7 +42,7 @@ extends CharacterBody2D
 
 @export_group("Landing Quality")
 @export var landing_min_speed: float = 60.0 # below this, a touchdown is too gentle to count as a real landing (ignores settle-jitter)
-@export var landing_penalty_worst: float = 0.75 # speed multiplier on a completely mismatched landing
+@export var landing_penalty_worst: float = 0.4 # speed multiplier on a completely mismatched landing - lowered from 0.75 after the user asked for landing badly to actually hurt; a mismatched landing now scrubs 60% of speed instead of 25%
 @export var landing_bonus_best: float = 1.12 # speed multiplier on a perfectly-matched landing
 @export var landing_flow_swing: float = 0.25 # how much a landing's quality also swings the Flow meter, worst to best
 
@@ -518,6 +518,19 @@ func _do_jump() -> void:
 ## Resets position/velocity/state for an in-game restart (no scene reload).
 func reset(spawn_position: Vector2) -> void:
 	global_position = spawn_position
+	# CharacterBody2D's own is_on_floor() is a cache from the last
+	# move_and_slide() call - a raw position teleport like the line above
+	# does NOT refresh it, so for one frame it can keep reporting stale
+	# collision state from wherever the body was BEFORE the teleport. Found
+	# via a headless bot that died in a death-respawn loop at a checkpoint:
+	# the stale true reading let a spurious _apply_landing() fire against
+	# fresh reset velocity on the very first post-respawn frame, and
+	# separately could make jump()'s own grounded check unreliable for that
+	# same frame. apply_floor_snap() forces an immediate, accurate floor
+	# re-check against the NEW position, closing that window - Godot's
+	# built-in tool for exactly this "I just moved the body, is it on a
+	# floor now" question, without needing a real move_and_slide() step.
+	apply_floor_snap()
 	velocity = Vector2.ZERO
 	current_speed = 0.0
 	flow = 0.0

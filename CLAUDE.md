@@ -31,6 +31,17 @@ else in this file's minimalism stance (no UI/menu/persistence scope creep,
 headless-only validation, don't add DO NOT BUILD items unasked) still
 applies exactly as before.
 
+One more explicit exception, and this one actually reverses an earlier
+design principle rather than just adding to it: the user asked for the game
+to be "more punishing," specifically that missing a jump over a gap should
+kill you and send you back to a checkpoint. The Movement design section
+used to say flatly "there is no fall/wipeout mechanic" - that's no longer
+true. See "Gaps, Death, and Checkpoints" under Movement design for what
+changed (real terrain gaps, a checkpoint system, a death path distinct from
+the explicit Restart button, harsher landing punishment) and why it's still
+scoped tightly to that ask (two gaps total, one per level, not a redesign
+of the whole risk/reward system).
+
 ## Godot version: 4.7.1 — always, no exceptions
 
 **Always use Godot 4.7.1-stable.** Not "latest," not 4.3, not whatever a
@@ -523,9 +534,15 @@ wrong-Godot-version risk at the top of this file to corrupt.
   now byte-for-byte the original 0.2 (re-verified identical time-to-crest
   and no stall), while downhill can roll as strong as feels good (0.6)
   with zero uphill risk, since the two no longer share a value at all.
-- There is no fall/wipeout mechanic — leaning hard, in any direction, for
-  any length of time, never cuts speed or locks out input. The only
-  consequence of a bad lean is the smooth effectiveness penalty above.
+- Leaning hard, in any direction, for any length of time, never cuts speed
+  or locks out input by itself - the only consequence of a *bad angle* is
+  the smooth effectiveness penalty above. This used to also mean there was
+  no fall/wipeout mechanic at all; that's no longer true since the user
+  asked for the game to be more punishing - see "Gaps, Death, and
+  Checkpoints" below. The distinction that survives: bad *technique* (angle,
+  timing) is still never a hard clamp to zero, but a bad *landing* now
+  scrubs a lot more speed than it used to, and missing a jump over an actual
+  gap is real death, not a speed penalty.
 - The lean/alignment formulas are symmetric: leaning backward and matching
   the reverse direction is exactly as effective as leaning forward. A
   sustained hard reverse lean therefore builds real speed the same way
@@ -536,11 +553,14 @@ wrong-Godot-version risk at the top of this file to corrupt.
   test, not something a normal test of forward play would ever surface.
   Fixed with a universal safety net in Main.gd: if the player's y ever
   exceeds `terrain.lowest_surface_y() + FALL_RECOVERY_MARGIN`, it's
-  treated as having fallen off the world and triggers the same reset as
-  the Restart button - this catches either edge, or any future terrain
-  gap, without needing a precisely-tuned boundary wall. Worth re-running
-  a sustained-reverse-lean test after any terrain layout change, since a
-  longer/differently-shaped course could shift where this matters.
+  treated as having fallen off the world - this catches either edge, a
+  missed gap jump, or any future terrain gap, without needing a
+  precisely-tuned boundary wall. It used to trigger the same full reset as
+  the Restart button; now it triggers death/checkpoint-respawn instead (see
+  "Gaps, Death, and Checkpoints" below) - the catch itself didn't change,
+  only what happens once it fires. Worth re-running a sustained-reverse-lean
+  test after any terrain layout change, since a longer/differently-shaped
+  course could shift where this matters.
 - The finish end had the same class of problem from ordinary play, not just
   a stress test: there's deliberately no results screen, so crossing the
   end-zone only stops the timer - it doesn't freeze the player. But the
@@ -748,6 +768,115 @@ wrong-Godot-version risk at the top of this file to corrupt.
   so they remain trustworthy even where the specific numbers might not be.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
+
+### Gaps, Death, and Checkpoints
+
+The user's explicit ask: "if you lad [land] bad and let there be gaps you
+have to jump as well, if you dont make it you die and restart at a
+checkpoint." Three changes together:
+
+- **Harsher landing punishment**: `landing_penalty_worst` dropped from 0.75
+  to 0.4 - a completely mismatched landing now scrubs 60% of speed instead
+  of 25%. Verified headlessly that this doesn't reopen a soft-lock the way
+  the `min_ceiling_with_any_lean` fix had to guard against: a worst-case
+  repeated-bad-landing bhop-section stress test hit `current_speed == 0.0`
+  at one point but still recovered and finished the section, since nothing
+  about the ceiling/accel system itself changed - only the one-shot landing
+  multiplier got harsher.
+- **Real terrain gaps** (`Terrain.gaps`, `{start, end}` entries, one per
+  level): a genuine absence of ground, not a cosmetic zone like ice/mud.
+  `height_at()`/`tangent_at()` stay pure curve math across a gap's x-range
+  (needed for continuity elsewhere - camera lookahead, checkpoint fallback
+  positions), but `Terrain._build_ground()` splits collision into one
+  `CollisionPolygon2D` per contiguous stretch BETWEEN gaps, skipping any
+  segment inside one, and `TerrainRenderer._rebuild()` does the same for the
+  visual fill and the rim highlight (now built as one `Line2D` per solid
+  stretch instead of one continuous line for the whole course) - so a gap
+  shows real empty space (the Background visible through it), not a
+  painted-over hole. `Terrain.is_gap_at(x)` is the query Main.gd uses to
+  tell "fell into a gap" apart from nothing.
+  - Level 1's gap sits on crest 2's flat top (5980-6280, otherwise unclaimed
+    by any zone). Level 2's sits on the flat run between bhop corridor 2 and
+    boost pad #2 (18000-18300), deliberately NOT inside the flow gauntlet
+    (which needs uninterrupted grounded contact for its own reasons - see
+    the flow-zone note above). Both are 300px wide - a first attempt at
+    200px turned out trivial: verified via headless bot that even a
+    meaningfully slower approach (mismanaged mud-zone speed) still cleared
+    it with 100+px to spare, because `jump_impulse`'s fixed ~0.65s flight
+    time combined with `air_control_accel`'s constant forward push during
+    that flight dominates over modest pre-jump speed differences - so
+    pre-jump speed barely matters here, which is fine: the real skill check
+    this design ends up testing is "did you actually press jump," a robust,
+    binary thing to require on a touchscreen, not a finicky exact-speed
+    window that would feel unfair on mobile.
+  - **Real finding, not obvious in advance**: the jump has to be thrown from
+    solid, already-flat ground, not while still climbing toward the crest.
+    A sweep of jump positions at the 300px width found x>=5850 (near/on the
+    flat top) reliably clears the gap, while x<=5800 (still on the climbing
+    slope) reliably falls short and falls in - jumping off an upward-angled
+    floor normal doesn't carry the same effective distance as jumping off a
+    flat one, even with the same forward speed. This makes the real,
+    learnable skill "wait until you're over flat ground, then jump," not
+    "jump the instant you see the gap" - narrower than it first looks, but
+    still a comfortably human ~100-130px/150-200ms window, not frame-perfect.
+    Any bot/test approaching either gap needs to jump from at or after the
+    flat run begins, not from an arbitrary lookahead distance - an earlier
+    version of the benchmark bot below jumped up to 260px early (still
+    mid-climb) and died in a loop over and over despite "correctly" pressing
+    jump every single approach.
+- **Checkpoints and death** (`Terrain.checkpoints`, an `Array[float]` of
+  x-positions per level; tracking and the actual death/respawn logic live in
+  Main.gd): checkpoints move the respawn point forward, one-way, as the
+  player's x passes each one - `Main._check_checkpoints()` only runs while a
+  run is actually in progress (`_timer_running and not _finished`), so
+  coasting through the finish runway or idling before the timer starts can't
+  claim one. Placed with real thought about WHERE, not just "near each
+  hazard": a checkpoint right at the mouth of a gap (e.g. 50px before it)
+  turned out to be a real bug, not just tight - a respawned player starts a
+  few px above the surface with a teleported position, and if that spot
+  happens to sit right at one of this course's already-documented
+  "cresting" curve transitions (see the `floor_snap_length` history above),
+  the ball can fail to re-establish `is_on_floor()` for many frames, meaning
+  a death right at the gap could make the VERY NEXT life un-jumpable before
+  even reaching the edge. Level 2's last checkpoint moved from 17950 (right
+  at a keyframe transition) to 17750 (cleanly mid-slope, verified to
+  re-ground within 0 frames of a reset) for exactly this reason. Level 1's
+  checkpoints didn't need moving (all three re-ground within 0-3 frames as
+  originally placed).
+  - Falling into a gap, or off the world edge (the existing reverse-lean
+    safety net) now triggers `Main._on_death()`: respawn at
+    `_last_checkpoint_position` (spawn if none claimed yet) and a brief red
+    "DIED - RESPAWNED" banner - but deliberately does NOT reset `_elapsed`,
+    `_timer_running`, or best-time state, unlike the explicit Restart
+    button. The lost time is the punishment; death doesn't wipe it away.
+    The Restart button (`_on_restart_pressed()`) still does a full reset,
+    including checkpoint progress back to spawn and `_next_checkpoint_index`
+    back to 0 - it's a deliberate "start the whole level over," not a
+    lighter option than death.
+  - **Real engine bug found and fixed along the way**: `Player.reset()` did
+    a raw `global_position` teleport with no floor re-check, which left
+    Godot's own `is_on_floor()` cache stale (reflecting wherever the body
+    was collision-wise BEFORE the teleport) until the next real
+    `move_and_slide()` call happened to run. This could let a spurious
+    landing-redirect fire against freshly-reset velocity, and separately
+    could make `jump()`'s own grounded check unreliable for the first frame
+    after a respawn. Fixed by calling `apply_floor_snap()` right after the
+    position assignment in `reset()` - Godot's own built-in tool for "I just
+    moved this body, is it on a floor now," which forces an accurate
+    re-check at the new position instead of trusting stale cached state.
+    Caught via a headless bot that fell into a genuine death-loop at a
+    checkpoint (100+ deaths, never progressing) despite what looked like a
+    correctly-timed automatic jump.
+  - A benchmark bot needs to be gap-aware or it isn't testing anything
+    representative: the standard 4-policy harness now checks
+    `terrain.gaps` and fires `player.jump()` once per approach when a gap's
+    start is within a tested-safe lookahead of the player's current x (see
+    the jump-position finding above for why that lookahead has to be
+    narrow, not just "somewhere before the gap"), and detects a
+    death-triggered respawn (a sudden backward x jump) so it's willing to
+    jump again on the retry. With that in place, all three policies
+    (perfect/decent/poor) clear both gaps with zero deaths and finish at
+    times close to the pre-gap baseline on both levels.
 
 ## Working style expected on this project
 

@@ -31,8 +31,14 @@ func refresh() -> void:
 
 
 func _rebuild() -> void:
+	# Synchronous removal, not queue_free() - see TerrainRenderer.gd's
+	# _rebuild() for the exact bug this avoids: PaletteController applies its
+	# initial preset in the same frame Background._ready() already built
+	# once, and a deferred free would leave the old layers briefly
+	# double-drawn alongside the new ones.
 	for child in get_children():
-		child.queue_free()
+		remove_child(child)
+		child.free()
 	add_child(_make_sky())
 	# Two layers at different motion_scale for parallax depth - the far layer
 	# barely drifts as the camera moves, the near layer drifts more, so they

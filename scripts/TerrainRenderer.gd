@@ -47,8 +47,17 @@ func refresh_colors() -> void:
 
 
 func _rebuild() -> void:
+	# Synchronous removal, not queue_free(): refresh_colors() can run again
+	# in the same frame _rebuild() first ran (Main._ready() applies the
+	# initial time-of-day preset right after Terrain._ready() already built
+	# this once) - queue_free() defers actual removal, so the old node was
+	# still present when the new one tried to claim the same name, and Godot
+	# silently renamed it to avoid the collision. Caught via a headless test
+	# that couldn't find "GroundVisual" by name even though a visual body
+	# clearly existed under a different auto-generated name.
 	if _body:
-		_body.queue_free()
+		remove_child(_body)
+		_body.free()
 	_body = Node2D.new()
 	_body.name = "GroundVisual"
 	add_child(_body)
@@ -56,17 +65,24 @@ func _rebuild() -> void:
 	var top_points: PackedVector2Array = _terrain.get_top_points()
 	var bottom_y: float = _terrain.get_bottom_y()
 	var zones: Array = _terrain.zones
+	var gaps: Array = _terrain.gaps if "gaps" in _terrain else []
 
 	var start_x: float = top_points[0].x
 	var end_x: float = top_points[-1].x
 
 	# Split into colored zones sharing sample points at every boundary (no
-	# seam/gap) - purely a visual carve-up, Terrain's collision polygon
-	# stays one unified shape regardless.
+	# seam/gap between adjacent COLORS) AND at every gap edge - a gap is a
+	# real hole, not a color, so any segment landing inside one is skipped
+	# entirely rather than filled, leaving the Background visible through it.
+	# Terrain's own collision polygon is carved out the same way in
+	# Terrain._build_ground(), independently of this file.
 	var boundaries: Array[float] = [start_x, end_x]
 	for z in zones:
 		boundaries.append(z.start)
 		boundaries.append(z.end)
+	for g in gaps:
+		boundaries.append(g.start)
+		boundaries.append(g.end)
 	boundaries.sort()
 	for i in range(boundaries.size() - 1):
 		var seg_start: float = boundaries[i]
@@ -74,25 +90,18 @@ func _rebuild() -> void:
 		if seg_end <= seg_start:
 			continue
 		var mid: float = (seg_start + seg_end) / 2.0
+		if _terrain.is_gap_at(mid):
+			continue
 		var color: Color = ground_color
 		for z in zones:
 			if mid >= z.start and mid <= z.end:
 				color = _zone_color(z.type)
 				break
 		_add_visual_segment(top_points, seg_start, seg_end, color, bottom_y)
-
-	# One continuous highlight along the whole course's surface, on top of
-	# every zone-colored segment - simplest way to sell "sunlight catching
-	# the top edge" without seams at zone boundaries or a per-segment shader.
-	var rim := Line2D.new()
-	rim.points = top_points
-	rim.width = rim_highlight_width
-	rim.default_color = rim_highlight_color
-	rim.joint_mode = Line2D.LINE_JOINT_ROUND
-	rim.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	rim.end_cap_mode = Line2D.LINE_CAP_ROUND
-	rim.antialiased = true
-	_body.add_child(rim)
+		# The rim highlight has to stop at gap edges too, for the same reason
+		# the fill does - one Line2D per contiguous solid stretch instead of
+		# a single line for the whole course.
+		_add_rim_segment(top_points, seg_start, seg_end)
 
 
 func _zone_color(type: String) -> Color:
@@ -106,15 +115,34 @@ func _zone_color(type: String) -> Color:
 		_: return ground_color
 
 
-func _add_visual_segment(top_points: PackedVector2Array, seg_start: float, seg_end: float, color: Color, bottom_y: float) -> void:
+## Shared by _add_visual_segment/_add_rim_segment: the slice of top_points
+## framing [seg_start, seg_end] (nearest existing samples, not necessarily
+## exact - same sample_spacing-scale slop the zone-color system already
+## accepted before gaps existed).
+func _slice_top_points(top_points: PackedVector2Array, seg_start: float, seg_end: float) -> PackedVector2Array:
 	var start_index: int = 0
 	while start_index < top_points.size() - 1 and top_points[start_index].x < seg_start:
 		start_index += 1
 	var end_index: int = start_index
 	while end_index < top_points.size() - 1 and top_points[end_index].x < seg_end:
 		end_index += 1
+	return top_points.slice(start_index, end_index + 1)
 
-	var points: PackedVector2Array = top_points.slice(start_index, end_index + 1)
+
+func _add_rim_segment(top_points: PackedVector2Array, seg_start: float, seg_end: float) -> void:
+	var rim := Line2D.new()
+	rim.points = _slice_top_points(top_points, seg_start, seg_end)
+	rim.width = rim_highlight_width
+	rim.default_color = rim_highlight_color
+	rim.joint_mode = Line2D.LINE_JOINT_ROUND
+	rim.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	rim.end_cap_mode = Line2D.LINE_CAP_ROUND
+	rim.antialiased = true
+	_body.add_child(rim)
+
+
+func _add_visual_segment(top_points: PackedVector2Array, seg_start: float, seg_end: float, color: Color, bottom_y: float) -> void:
+	var points: PackedVector2Array = _slice_top_points(top_points, seg_start, seg_end)
 	var top_point_count: int = points.size()
 	points.append(Vector2(points[points.size() - 1].x, bottom_y))
 	points.append(Vector2(points[0].x, bottom_y))

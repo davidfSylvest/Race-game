@@ -17,6 +17,7 @@ extends Node2D
 @onready var jump_button: Button = %JumpButton
 @onready var level_button: Button = %LevelButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
+@onready var _event_label: Label = _make_event_label()
 
 @export var time_of_day: PaletteController.Preset = PaletteController.Preset.DAY # sunrise/day/dusk - see PaletteController.gd; per-scene so Main.tscn and Level2.tscn could eventually differ, though both currently ship on DAY
 
@@ -34,6 +35,18 @@ const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point 
 const NEW_BEST_FLASH_DURATION: float = 2.0
 const NEW_BEST_FLASH_COLOR: Color = Color(1.0, 0.85, 0.2, 1)
 
+# The user explicitly asked for the game to be more punishing: missing a
+# terrain gap's jump (or running off the world edge, the old reverse-lean
+# case) is now death, not a shrug-and-walk-back. Death sends the player back
+# to their last checkpoint rather than all the way to spawn - the whole
+# point of a checkpoint - and deliberately does NOT reset the run timer or
+# best-time state the way the explicit Restart button does, so losing time
+# to a death is itself part of the punishment, not something death forgives.
+const DEATH_FLASH_DURATION: float = 1.6
+const DEATH_FLASH_COLOR: Color = Color(0.95, 0.25, 0.2, 1)
+const CHECKPOINT_FLASH_DURATION: float = 1.2
+const CHECKPOINT_FLASH_COLOR: Color = Color(0.35, 0.9, 0.55, 1)
+
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
@@ -41,6 +54,10 @@ var _spawn_position: Vector2
 var _best_time: float = -1.0 # session-only, no persistence - just gives restart-and-retry a sense of progress
 var _fall_recovery_y: float = 0.0
 var _new_best_flash_timer: float = 0.0
+var _last_checkpoint_position: Vector2
+var _next_checkpoint_index: int = 0 # index into terrain.checkpoints of the next one still to claim
+var _event_flash_timer: float = 0.0
+var _event_flash_duration: float = 1.0 # the duration passed to the most recent _show_event() call, needed to compute the fade fraction in _update_event_flash()
 
 
 func _ready() -> void:
@@ -74,6 +91,7 @@ func _ready() -> void:
 	var spawn_x: float = terrain.spawn_x()
 	_spawn_position = Vector2(spawn_x, terrain.height_at(spawn_x) - PLAYER_GROUND_OFFSET)
 	player.global_position = _spawn_position
+	_last_checkpoint_position = _spawn_position
 	_fall_recovery_y = terrain.lowest_surface_y() + FALL_RECOVERY_MARGIN
 
 	var end_x: float = terrain.course_end_x() - END_ZONE_MARGIN
@@ -113,13 +131,14 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	# Sustained lean off either end of the terrain can build enough speed to
 	# outrun the runway/finish-straight buffers and fall past the world's
-	# edge into open space (caught via a hard-reverse-lean stress test - the
-	# fall is otherwise never-ending, which violates the "no unrecoverable
-	# state" principle just as much as any other stuck-forever scenario
-	# would). A universal Y-based catch handles this regardless of which
-	# edge, or any future terrain gap, without needing a precise boundary.
+	# edge into open space (caught via a hard-reverse-lean stress test), or
+	# the player can miss a terrain gap's jump and fall straight through it -
+	# both are now death rather than an instant no-cost reset, since the user
+	# explicitly asked for missing a jump to actually cost something. One
+	# Y-based catch handles both causes (and any future terrain gap) without
+	# needing a precise per-hazard boundary.
 	if player.position.y > _fall_recovery_y:
-		_on_restart_pressed()
+		_on_death()
 		return
 
 	if not _timer_running and not _finished and joystick.get_vector().length() > 0.0:
@@ -129,14 +148,35 @@ func _process(delta: float) -> void:
 		_elapsed += delta
 		_update_timer_label()
 
+	# Checkpoints only move forward and only while a run is actually in
+	# progress - claiming one after finishing (while still coasting through
+	# the runway) or before the timer has even started would be meaningless.
+	if _timer_running and not _finished:
+		_check_checkpoints()
+
 	var zone: String = terrain.zone_name_at(player.position.x)
 	speed_label.text = "Speed: %.1f px/s%s" % [player.current_speed, ("  [%s]" % zone) if zone != "" else ""]
 	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
 	chain_label.text = _chain_text()
 	_update_best_flash(delta)
+	_update_event_flash(delta)
 	# Camera behavior (speed zoom, lookahead, landing shake, launch zoom
 	# kick, speed-streak overlay) is fully self-driven by CameraRig.gd once
 	# init() has been called - see _ready() above. Nothing to poll here.
+
+
+## Advances the respawn point the moment the player passes the next
+## uncollected checkpoint x - forward progress only (terrain.checkpoints is
+## authored in course order), so there's no way to "bank" a checkpoint by
+## drifting backward and forward across it repeatedly.
+func _check_checkpoints() -> void:
+	if not ("checkpoints" in terrain) or _next_checkpoint_index >= terrain.checkpoints.size():
+		return
+	var next_x: float = terrain.checkpoints[_next_checkpoint_index]
+	if player.position.x >= next_x:
+		_last_checkpoint_position = Vector2(next_x, terrain.height_at(next_x) - PLAYER_GROUND_OFFSET)
+		_next_checkpoint_index += 1
+		_show_event("CHECKPOINT", CHECKPOINT_FLASH_COLOR, CHECKPOINT_FLASH_DURATION)
 
 
 func _chain_text() -> String:
@@ -171,6 +211,50 @@ func _update_best_flash(delta: float) -> void:
 	best_label.modulate = NEW_BEST_FLASH_COLOR.lerp(Color.WHITE, 1.0 - _new_best_flash_timer / NEW_BEST_FLASH_DURATION)
 
 
+## Small centered banner for one-shot events the player needs an explicit
+## reason for (a checkpoint claimed, a death/respawn) - built here rather
+## than placed in either .tscn, same "extra HUD element via code" pattern as
+## the rest of this session's additions. Lives in the UI CanvasLayer (found
+## via an existing HUD node's parent, not a new unique name) so it sits
+## above gameplay and is unaffected by the world-space CanvasModulate tint.
+func _make_event_label() -> Label:
+	var label := Label.new()
+	label.anchor_left = 0.5
+	label.anchor_right = 0.5
+	label.offset_left = -220.0
+	label.offset_right = 220.0
+	label.offset_top = 200.0
+	label.offset_bottom = 240.0
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 26)
+	label.modulate = Color(1, 1, 1, 0)
+	timer_label.get_parent().add_child(label)
+	return label
+
+
+func _show_event(text: String, color: Color, duration: float) -> void:
+	_event_label.text = text
+	_event_flash_duration = duration
+	_event_flash_timer = duration
+	_event_label.modulate = color
+
+
+## Same one-shot decay pattern as the landing squash/launch stretch/camera
+## shake elsewhere - fades the banner's alpha to 0 over its own duration
+## (checkpoint and death use different lengths) rather than lerping to
+## white like the NEW BEST flash, since this is meant to disappear
+## entirely, not hand off to a permanent label underneath it.
+func _update_event_flash(delta: float) -> void:
+	if _event_flash_timer <= 0.0:
+		return
+	_event_flash_timer = max(_event_flash_timer - delta, 0.0)
+	var color: Color = _event_label.modulate
+	color.a = _event_flash_timer / _event_flash_duration
+	_event_label.modulate = color
+	if _event_flash_timer <= 0.0:
+		_event_label.text = ""
+
+
 func _format_time(t: float) -> String:
 	var total_ms: int = int(round(t * 1000.0))
 	var minutes: int = total_ms / 60000
@@ -196,10 +280,26 @@ func _on_level_button_pressed() -> void:
 	get_tree().change_scene_to_file(target)
 
 
+## Falling off the world edge or missing a gap's jump - see _process()'s
+## fall-recovery check. Deliberately lighter than _on_restart_pressed():
+## sends the player back to their last checkpoint (spawn if none claimed
+## yet) but leaves the run timer, best-time state, and checkpoint progress
+## alone, so the lost time itself is part of the punishment rather than
+## something a death wipes clean.
+func _on_death() -> void:
+	player.reset(_last_checkpoint_position)
+	camera.reset_camera()
+	_show_event("DIED - RESPAWNED", DEATH_FLASH_COLOR, DEATH_FLASH_DURATION)
+
+
 func _on_restart_pressed() -> void:
 	player.reset(_spawn_position)
 	camera.reset_camera()
+	_last_checkpoint_position = _spawn_position
+	_next_checkpoint_index = 0
 	_new_best_flash_timer = 0.0
+	_event_flash_timer = 0.0
+	_event_label.text = ""
 	best_label.modulate = Color.WHITE
 	_elapsed = 0.0
 	_timer_running = false

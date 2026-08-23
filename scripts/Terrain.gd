@@ -37,6 +37,25 @@ extends Node2D
 ## sit back-to-back by design so a boundary pixel picks the first match).
 var zones: Array[Dictionary] = []
 
+## Each entry: {start: float, end: float} - a real absence of ground, not a
+## cosmetic zone. The user explicitly asked for the game to be more
+## punishing: a gap can't be rolled across, only jumped - miss it and you
+## fall through into open space, which Main.gd now treats as death (see
+## Main.gd's checkpoint/death system) rather than the old "just walk back."
+## height_at()/tangent_at() stay pure curve math across a gap's x-range
+## regardless (needed for continuity - camera lookahead, checkpoint
+## fallback positions, etc. shouldn't care that there's no ground there);
+## only _build_ground()/TerrainRenderer actually carve the hole out of
+## collision/visuals. Populated per-level in _configure_level().
+var gaps: Array[Dictionary] = []
+
+## World x positions the player must reach (moving forward) to move their
+## respawn point up - see Main.gd's checkpoint tracking. Placed right before
+## each gap so a missed jump costs you the run-up, not the whole level, plus
+## a couple of earlier waypoints so an early mistake doesn't send you all
+## the way back to spawn either. Populated per-level in _configure_level().
+var checkpoints: Array[float] = []
+
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
 ## Populated per-level in _configure_level().
@@ -63,9 +82,13 @@ func _configure_level() -> void:
 	if level == 2:
 		keyframes = _level_2_keyframes()
 		zones = _level_2_zones()
+		gaps = _level_2_gaps()
+		checkpoints = _level_2_checkpoints()
 	else:
 		keyframes = _level_1_keyframes()
 		zones = _level_1_zones()
+		gaps = _level_1_gaps()
+		checkpoints = _level_1_checkpoints()
 
 
 func _level_1_keyframes() -> Array[Vector2]:
@@ -141,6 +164,30 @@ func _level_1_zones() -> Array[Dictionary]:
 		# as "BHOP" once it's plain flat ground.
 		{"type": "bhop", "start": 7000.0, "end": 8620.0},
 	]
+
+
+## One gap, on crest 2's flat top (5900-6300, otherwise unclaimed by any
+## zone) - flat ground on both sides means approach speed is whatever the
+## player actually carried out of the climb from the mud zone just before
+## it, not distorted by also being mid-slope. 300px wide (a first pass at
+## 200px turned out trivial - see CLAUDE.md for why): verified via headless
+## bot that a realistic tangent-tracking approach speed clears it with a
+## well-timed jump, and that simply rolling across without jumping reliably
+## falls in - see CLAUDE.md for the exact numbers.
+func _level_1_gaps() -> Array[Dictionary]:
+	return [
+		{"start": 5980.0, "end": 6280.0},
+	]
+
+
+## Checkpoints move the respawn point forward as the player clears them, so
+## a death (falling into the gap, or the old off-the-world-edge case) costs
+## the run-up since the last one, not the whole level. Placed after hill 1
+## (so an early mistake there isn't punished as harshly as it used to be),
+## and right at the gap's approach (so a missed jump only costs the very
+## thing that killed you), plus one past the hardest remaining section.
+func _level_1_checkpoints() -> Array[float]:
+	return [1950.0, 5900.0, 8650.0]
 
 
 ## Level 2: roughly 2x level 1's length, built around one long uninterrupted
@@ -229,6 +276,39 @@ func _level_2_zones() -> Array[Dictionary]:
 		{"type": "bhop", "start": 15500.0, "end": 17540.0},
 		{"type": "boost", "start": 18500.0, "end": 18700.0},
 	]
+
+
+## One gap, on the flat run between bhop corridor 2 ending (17540/17900) and
+## boost pad #2 (18500-18700) - generous flat runway on both sides (100px
+## before, 200px after) so neither the corridor's last bump nor the gap jump
+## itself sends the player into the boost pad badly angled, same lesson
+## already learned from the boost-placement history above. Deliberately NOT
+## placed inside the flow gauntlet (8500-15500) - that zone's whole point is
+## uninterrupted grounded contact for the Flow meter, and a gap would break
+## that every cycle. 300px wide, same width as level 1's gap - a 200px first
+## attempt turned out trivial (verified via headless bot: even a
+## meaningfully slower approach cleared it with 100+px to spare, because
+## air control's constant forward push during the ~0.65s flight time
+## dominates over small pre-jump speed differences), so both gaps use the
+## width that actually required a real, deliberate jump.
+func _level_2_gaps() -> Array[Dictionary]:
+	return [
+		{"start": 18000.0, "end": 18300.0},
+	]
+
+
+func _level_2_checkpoints() -> Array[float]:
+	# The last checkpoint is 17750, not right at the gap's ~17900-18000
+	# approach - verified via headless test that a checkpoint respawn at
+	# 17900+ can land inside a real separation-from-surface window right at
+	# the 17900 keyframe (a "cresting" transition from corridor 2's steep
+	# descent into the much gentler run toward the gap, the same real
+	# ballistic effect documented in this file's floor_snap_length history -
+	# a fresh respawn with no established grounded contact can fail to
+	# re-catch the floor there for many frames, unlike a continuously-rolling
+	# player who's already grounded through it). 17750 sits cleanly mid-
+	# descent, confirmed to re-establish on_floor within 0 frames of a reset.
+	return [2150.0, 6850.0, 15550.0, 17750.0]
 
 
 ## Ground surface height at world x, following the same curve used to build
@@ -326,6 +406,17 @@ func wants_tight_floor_snap_at(x: float) -> bool:
 	return _first_zone_of_type_at(x, "bhop") or _first_zone_of_type_at(x, "launch")
 
 
+## True inside a gap - a real absence of ground (see gaps above), not a
+## cosmetic zone. Main.gd uses this to distinguish "fell into a gap"/"fell
+## off the world" from ordinary grounded play when deciding whether to
+## trigger a death/respawn.
+func is_gap_at(x: float) -> bool:
+	for g in gaps:
+		if x >= g.start and x <= g.end:
+			return true
+	return false
+
+
 ## Short debug tag for whichever special zone x is in, "" on plain ground -
 ## a HUD readout for this during feel-testing, so a speed change is never
 ## ambiguous between "the terrain did that" and "your technique did that."
@@ -374,14 +465,43 @@ func _build_ground() -> void:
 		max_y = max(max_y, p.y)
 	_bottom_y = max_y + ground_thickness
 
-	var polygon_points: PackedVector2Array = _top_points.duplicate()
-	polygon_points.append(Vector2(end_x, _bottom_y))
-	polygon_points.append(Vector2(start_x, _bottom_y))
-
 	var body := StaticBody2D.new()
 	body.name = "Ground"
 	add_child(body)
 
+	# Solid ground is one CollisionPolygon2D per contiguous stretch between
+	# gaps, rather than one polygon for the whole course - a gap is a real
+	# absence of collision, not a cosmetic zone like ice/mud, so it has to be
+	# carved out of the shape itself. Boundaries are start_x/end_x plus every
+	# gap edge, sorted, so each adjacent pair is either fully solid or
+	# entirely inside a gap.
+	var boundaries: Array[float] = [start_x, end_x]
+	for g in gaps:
+		boundaries.append(g.start)
+		boundaries.append(g.end)
+	boundaries.sort()
+	for i in range(boundaries.size() - 1):
+		var seg_start: float = boundaries[i]
+		var seg_end: float = boundaries[i + 1]
+		if seg_end <= seg_start:
+			continue
+		if is_gap_at((seg_start + seg_end) / 2.0):
+			continue
+		_add_collision_segment(body, seg_start, seg_end)
+
+
+func _add_collision_segment(body: Node, seg_start: float, seg_end: float) -> void:
+	var start_index: int = 0
+	while start_index < _top_points.size() - 1 and _top_points[start_index].x < seg_start:
+		start_index += 1
+	var end_index: int = start_index
+	while end_index < _top_points.size() - 1 and _top_points[end_index].x < seg_end:
+		end_index += 1
+
+	var points: PackedVector2Array = _top_points.slice(start_index, end_index + 1)
+	points.append(Vector2(points[points.size() - 1].x, _bottom_y))
+	points.append(Vector2(points[0].x, _bottom_y))
+
 	var collision := CollisionPolygon2D.new()
-	collision.polygon = polygon_points
+	collision.polygon = points
 	body.add_child(collision)
