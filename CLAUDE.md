@@ -60,10 +60,41 @@ handing it off:
    exit code 0 with no `ERROR`/`SCRIPT ERROR` lines.
 4. For physics changes, write a throwaway `scripts/_HeadlessTest.gd`,
    temporarily register it as an `[autoload]` in `project.godot`, and drive
-   the player by calling `player.call("_physics_process", delta)` directly
-   with a stubbed joystick vector (`player.joystick.set("_knob_offset", ...)`).
+   the player through the **real** physics loop:
+   ```gdscript
+   while i < N and player.position.x < target_x:
+       player.joystick.set("_knob_offset", ...)   # set input for the upcoming tick
+       await get_tree().physics_frame              # let the engine step once
+       i += 1
+   ```
+   Run with **both** `--headless --fixed-fps 60 --quit-after N`.
+   `--fixed-fps 60` is what makes this fast: it decouples simulated time
+   from real wall-clock time (Godot runs ticks as fast as the CPU allows
+   while still handing `_physics_process` the correct 1/60s delta each
+   time), so an 18-simulated-second race completes in well under a second
+   of real time instead of ~1 real second per simulated second. `N` for
+   `--quit-after` needs headroom for however many physics frames the test
+   actually needs (a few thousand is enough for any single-race check).
    Print the numbers that matter and sanity-check them against the intended
    design (e.g. "downhill + lean should exceed flat + same lean").
+   **Do NOT call `player.call("_physics_process", delta)` directly** - this
+   used to be the documented approach here, and it is broken: Godot's own
+   engine loop keeps calling `_physics_process` on its normal automatic
+   schedule regardless, so a manual call doesn't replace that, it races
+   against it. The two compete unpredictably depending on real execution
+   speed, which is invisible in a single run but produces genuinely
+   different outcomes (confirmed: three back-to-back runs of one identical
+   throwaway script gave one finish at 18s, one at 44s after a backward
+   send-flying detour, and one that never got there in 3600 manual calls)
+   for what should be a fully deterministic simulation. This cost real time
+   chasing a phantom "regression" that was actually just this noise -
+   re-running the exact same test against the exact same code gave three
+   different answers before the `physics_frame`-driven version above gave
+   the same answer (down to the exact finish millisecond) on every repeat.
+   If a test needs to inject state mid-run (e.g. a specific velocity right
+   before a jump), set it directly on `player` between `await` calls -
+   never resume driving physics through a raw manual call once the loop
+   has started.
 5. **Always remove the test scaffolding before committing**: delete
    `scripts/_HeadlessTest.gd`, restore `project.godot` (no leftover
    `[autoload]` block), and `rm -rf .godot` so nothing test-only ships.
