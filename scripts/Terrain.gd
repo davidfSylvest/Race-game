@@ -14,6 +14,7 @@ extends Node2D
 @export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking the low-friction patch
 @export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking the high-friction patch
 @export var boost_accent_color: Color = Color(0.95, 0.9, 0.15, 1) # electric yellow-gold marking the boost pad, distinct from every other zone color
+@export var launch_pad_accent_color: Color = Color(0.3, 0.95, 0.5, 1) # vivid spring green marking the launch pad, distinct from every other zone color
 
 const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the bhop bumps begin, below
 
@@ -35,6 +36,20 @@ const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the b
 ## Player.gd's boost_multiplier and _was_in_boost_zone.
 const BOOST_ZONE_START_X: float = 8700.0
 const BOOST_ZONE_END_X: float = 8900.0
+
+## Launch pad: an automatic pop off the ground along the floor normal (same
+## axis the manual jump uses), no button required - the terrain-triggered
+## counterpart to Player.gd's jump() rather than another velocity-magnitude
+## kick like boost. Placed on crest 1's flat top, with runway on both sides
+## (the flat top itself runs 2900-3300) so a rider crosses it already
+## committed to forward speed and lands back on more flat ground before the
+## real descent begins at 3300 - unlike the boost pad's rejected first
+## placement (see BOOST_ZONE above), the arc this adds lands on flat ground,
+## not into a slope that would feed extra speed straight into
+## _apply_landing's mismatch penalty. Verified with the same class of
+## tangent-tracking headless bot used to validate boost's placement.
+const LAUNCH_PAD_START_X: float = 3100.0
+const LAUNCH_PAD_END_X: float = 3200.0
 
 ## Low-friction patch on valley 1's flat floor, right after hill 1's
 ## downhill - Trackmania-style momentum test: much less grip means you
@@ -149,6 +164,12 @@ func is_boost_zone_at(x: float) -> bool:
 	return x >= BOOST_ZONE_START_X and x <= BOOST_ZONE_END_X
 
 
+## True while x is inside the launch pad - same edge-detection pattern as
+## is_boost_zone_at above.
+func is_launch_pad_at(x: float) -> bool:
+	return x >= LAUNCH_PAD_START_X and x <= LAUNCH_PAD_END_X
+
+
 ## Short debug tag for whichever special zone x is in, "" on plain ground -
 ## a HUD readout for this during feel-testing, so a speed change is never
 ## ambiguous between "the terrain did that" and "your technique did that."
@@ -159,6 +180,8 @@ func zone_name_at(x: float) -> String:
 		return "MUD"
 	if x >= BOOST_ZONE_START_X and x <= BOOST_ZONE_END_X:
 		return "BOOST"
+	if x >= LAUNCH_PAD_START_X and x <= LAUNCH_PAD_END_X:
+		return "LAUNCH"
 	if x >= BHOP_SECTION_START_X:
 		return "BHOP"
 	return ""
@@ -198,7 +221,7 @@ func _build_ground() -> void:
 	# Visual is split into colored zones sharing sample points at every
 	# boundary (no seam/gap) - collision above stays a single unified
 	# polygon, completely unaffected by how the visual is carved up.
-	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, MUD_ZONE_START_X, MUD_ZONE_END_X, BOOST_ZONE_START_X, BOOST_ZONE_END_X, BHOP_SECTION_START_X, end_x]
+	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, MUD_ZONE_START_X, MUD_ZONE_END_X, LAUNCH_PAD_START_X, LAUNCH_PAD_END_X, BOOST_ZONE_START_X, BOOST_ZONE_END_X, BHOP_SECTION_START_X, end_x]
 	boundaries.sort()
 	for i in range(boundaries.size() - 1):
 		var seg_start: float = boundaries[i]
@@ -211,6 +234,8 @@ func _build_ground() -> void:
 			color = ice_accent_color
 		elif mid >= MUD_ZONE_START_X and mid <= MUD_ZONE_END_X:
 			color = mud_accent_color
+		elif mid >= LAUNCH_PAD_START_X and mid <= LAUNCH_PAD_END_X:
+			color = launch_pad_accent_color
 		elif mid >= BOOST_ZONE_START_X and mid <= BOOST_ZONE_END_X:
 			color = boost_accent_color
 		elif mid >= BHOP_SECTION_START_X:
