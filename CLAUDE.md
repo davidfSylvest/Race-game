@@ -89,18 +89,19 @@ overrode player input) that a headless smoke test caught before commit.
   hardcode the course layout.
 - `scripts/Player.gd` — the physics core. All movement tuning lives here as
   `@export` vars grouped by concern (Acceleration, Top Speed Curve,
-  Gravity, Slope Response, Lean Alignment, Fall/Wipeout, Lean Visual).
-  `reset(spawn_position)` re-centers state for the in-game restart — no
-  scene reload.
+  Gravity, Slope Response, Lean Alignment, Landing/Launch Quality, Air
+  Control, Chain, Flow Meter, Lean Visual). `reset(spawn_position)`
+  re-centers state for the in-game restart — no scene reload.
 - `scripts/Joystick.gd` — fixed bottom-left virtual joystick. Touch primary,
   mouse fallback for desktop testing. `get_vector()` returns deflection as
   a `Vector2`: length 0–1 is magnitude, direction is lean angle.
 - `scripts/Main.gd` — HUD readouts (timer, speed, best time), restart
   button wiring, end-zone signal handling.
-- The course ends in a bhop section (small rhythmic bumps) specifically so
-  the chain/flow/landing/launch systems have a place to actually chain
-  several jumps in a row - the two big hills each only give ~1 real jump
-  per run. Getting these to actually launch required lowering
+- The course has one mid-course roller bump (partway down hill 2's descent)
+  plus a dedicated bhop section (small rhythmic bumps) right before the
+  finish, so the chain/flow/landing/launch systems have places to actually
+  chain several jumps in a row - the two big hills' crests each only give
+  ~1 real jump per run. Getting bumps to actually launch required lowering
   `floor_snap_length` (12 -> 5): Godot's floor snapping quietly absorbs
   any separation smaller than that value regardless of slope angle, so a
   bump can look plenty steep and still never produce real air time if it's
@@ -163,6 +164,11 @@ overrode player input) that a headless smoke test caught before commit.
   capped bonus to the ceiling/accel on top of Flow - a gap that's too long
   or a bad landing resets it. Rewards stringing jumps together rather than
   landing once and coasting.
+- Landing and launch quality each drive a brief one-shot visual (squash on
+  a rough landing, stretch on a clean launch, both decaying back to
+  neutral in a fraction of a second) on top of the lean-driven crouch/
+  stand, so an impact/pop actually reads as a physical event instead of
+  just a speed number changing a moment later.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
