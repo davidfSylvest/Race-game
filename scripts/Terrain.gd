@@ -57,7 +57,7 @@ const LAUNCH_PAD_END_X: float = 3200.0
 ## approaching the ice, and much less control to correct if you didn't.
 const ICE_ZONE_START_X: float = 1400.0
 const ICE_ZONE_END_X: float = 1900.0
-@export var ice_friction_scale: float = 0.15 # fraction of normal friction loss while on the ice - 0.15 means ~85% less grip than normal ground
+@export var ice_friction_scale: float = 0.06 # fraction of normal friction loss while on the ice - 0.06 means ~94% less grip than normal ground. Lowered from 0.15 after playtest feedback that the slide felt too weak to actually read as ice
 
 ## Ice's opposite: a high-friction patch on valley 2's floor, right after
 ## hill 2's downhill. Aggressively bleeds the speed you carried in - tests
@@ -65,7 +65,7 @@ const ICE_ZONE_END_X: float = 1900.0
 ## next climb instead of relying on momentum you can no longer coast on.
 const MUD_ZONE_START_X: float = 4600.0
 const MUD_ZONE_END_X: float = 5000.0
-@export var mud_friction_scale: float = 3.5 # multiple of normal friction loss while in the mud
+@export var mud_friction_scale: float = 6.5 # multiple of normal friction loss while in the mud. Raised from 3.5 after playtest feedback that it didn't slow the player down enough to actually read as mud
 
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
