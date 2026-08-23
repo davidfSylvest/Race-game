@@ -143,6 +143,21 @@ overrode player input) that a headless smoke test caught before commit.
 - There is no fall/wipeout mechanic — leaning hard, in any direction, for
   any length of time, never cuts speed or locks out input. The only
   consequence of a bad lean is the smooth effectiveness penalty above.
+- The lean/alignment formulas are symmetric: leaning backward and matching
+  the reverse direction is exactly as effective as leaning forward. A
+  sustained hard reverse lean therefore builds real speed the same way
+  forward play does, which is enough to blow through the runway buffer
+  behind spawn (or overshoot the finish straight the same way going
+  forward) and fall off the edge of the terrain into open space - an
+  unbounded fall with no recovery, found via a hard-reverse-lean stress
+  test, not something a normal test of forward play would ever surface.
+  Fixed with a universal safety net in Main.gd: if the player's y ever
+  exceeds `terrain.lowest_surface_y() + FALL_RECOVERY_MARGIN`, it's
+  treated as having fallen off the world and triggers the same reset as
+  the Restart button - this catches either edge, or any future terrain
+  gap, without needing a precisely-tuned boundary wall. Worth re-running
+  a sustained-reverse-lean test after any terrain layout change, since a
+  longer/differently-shaped course could shift where this matters.
 - Flow state: technique compounds instead of resetting between sections.
   Landing a jump redirects velocity onto the new slope's tangent, scaled by
   how well your airborne velocity matched it — land clean, keep/gain speed;

@@ -102,6 +102,16 @@ func course_end_x() -> float:
 	return keyframes[-1].x
 
 
+## Deepest surface point across the whole course - used by Main.gd to set
+## a fall-recovery threshold well below any solid ground, so overrunning
+## either end of the terrain (or any future gap) is always recoverable.
+func lowest_surface_y() -> float:
+	var max_y: float = -INF
+	for kf in keyframes:
+		max_y = max(max_y, kf.y)
+	return max_y
+
+
 ## Fraction (or multiple) of normal friction loss at world x - 1.0 on plain
 ## ground. Queried by Player.gd every physics frame, so keep it cheap.
 func friction_multiplier_at(x: float) -> float:

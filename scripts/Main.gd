@@ -25,18 +25,21 @@ const CAMERA_MIN_ZOOM: float = 0.55 # zoomed out this far at CAMERA_ZOOM_SPEED_R
 const CAMERA_ZOOM_SPEED_REF: float = 850.0 # px/s at which zoom reaches its minimum - raised from 500 since Flow/Chain bonuses now routinely push speed past 1000 px/s, and the old reference maxed the zoom out well before that, making the camera look identical at 500 vs 1160 despite a very different pace
 const CAMERA_LOOKAHEAD_MAX: float = 260.0 # px offset toward travel direction at full speed, so blind crests on the now-long course are readable
 const CAMERA_EASE: float = 0.08
+const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point before an auto-recovery kicks in
 
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
 var _spawn_position: Vector2
 var _best_time: float = -1.0 # session-only, no persistence - just gives restart-and-retry a sense of progress
+var _fall_recovery_y: float = 0.0
 
 
 func _ready() -> void:
 	var spawn_x: float = terrain.spawn_x()
 	_spawn_position = Vector2(spawn_x, terrain.height_at(spawn_x) - PLAYER_GROUND_OFFSET)
 	player.global_position = _spawn_position
+	_fall_recovery_y = terrain.lowest_surface_y() + FALL_RECOVERY_MARGIN
 
 	var end_x: float = terrain.course_end_x() - END_ZONE_MARGIN
 	end_zone.global_position = Vector2(end_x, terrain.height_at(end_x) - END_ZONE_HEIGHT / 2.0)
@@ -47,6 +50,17 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Sustained lean off either end of the terrain can build enough speed to
+	# outrun the runway/finish-straight buffers and fall past the world's
+	# edge into open space (caught via a hard-reverse-lean stress test - the
+	# fall is otherwise never-ending, which violates the "no unrecoverable
+	# state" principle just as much as any other stuck-forever scenario
+	# would). A universal Y-based catch handles this regardless of which
+	# edge, or any future terrain gap, without needing a precise boundary.
+	if player.position.y > _fall_recovery_y:
+		_on_restart_pressed()
+		return
+
 	if not _timer_running and not _finished and joystick.get_vector().length() > 0.0:
 		_timer_running = true
 
