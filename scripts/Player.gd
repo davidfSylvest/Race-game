@@ -33,6 +33,7 @@ extends CharacterBody2D
 @export var slope_ceiling_bonus: float = 0.9 # how much a downhill raises (or uphill lowers) the speed ceiling; 0 = flat-ground behavior everywhere
 @export var slope_ceiling_floor: float = 0.2 # uphill can never shrink the ceiling below this fraction of its flat-ground value
 @export var gravity_slope_assist: float = 0.2 # gentle passive drift downhill even with no lean input; kept small so lean stays the dominant force, not gravity
+@export var max_combined_ceiling_multiplier: float = 2.2 # hard cap on slope * Flow * Chain stacking together, so a best-case moment can't multiply the ceiling by 3x+
 
 @export_group("Lean Alignment")
 @export var alignment_influence: float = 1.0 # 0 = only raw lean magnitude matters (old behavior); 1 = full angle-matching (see below)
@@ -147,7 +148,14 @@ func _physics_process(delta: float) -> void:
 			var accel_force: float = directional_magnitude * max_accel_constant * flow_accel_multiplier
 			var speed_ratio: float = pow(directional_magnitude, speed_exponent)
 			var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
-			var max_speed_this_frame: float = speed_ratio * top_speed_constant * slope_multiplier * flow_speed_multiplier
+			# Slope, Flow, and Chain each stack multiplicatively into the
+			# ceiling - great on their own, but a steep downhill at max Flow
+			# and a long Chain can otherwise combine to nearly 3x. Capping
+			# the combined environmental+skill multiplier keeps any single
+			# best-case moment from trivializing the course, while each
+			# system still reads clearly on its own below the cap.
+			var combined_multiplier: float = min(slope_multiplier * flow_speed_multiplier, max_combined_ceiling_multiplier)
+			var max_speed_this_frame: float = speed_ratio * top_speed_constant * combined_multiplier
 
 			# Accelerate toward the ceiling this lean+slope+flow unlocks, but
 			# never yank existing momentum down if it's already above that
