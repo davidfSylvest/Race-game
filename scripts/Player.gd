@@ -56,6 +56,8 @@ extends CharacterBody2D
 @export_group("Jump")
 @export var jump_impulse: float = 520.0 # px/s added along the floor normal on a jump input - along the actual slope's normal rather than a fixed world-up, so a jump off an incline pops away from the surface instead of just straight up, consistent with how lean/gravity already treat the real ground tangent as the reference axis, not world-horizontal/vertical
 @export var jump_cooldown: float = 0.15 # seconds of forced delay before another jump can trigger, even if grounded again by then (e.g. a bhop bump) - guards against a single button_down accidentally re-firing across two adjacent physics frames right at a landing, not meant to be a felt limitation during normal play
+@export var coyote_time: float = 0.1 # seconds after leaving the floor (walking off a ledge/crest) a jump input still counts as grounded - standard forgiveness for imprecise touch timing. Deliberately kept below jump_cooldown: cooldown alone already blocks any attempt to chain coyote time into a same-jump double-jump, so this never needs its own separate guard against that
+@export var jump_buffer_time: float = 0.12 # seconds a jump press made too early (already airborne, past coyote) is remembered and fired the instant you land, instead of silently dropped - the landing counterpart to coyote time
 
 @export_group("Chain")
 @export var chain_quality_threshold: float = 0.7 # landing quality needed to extend (or start) a chain
@@ -98,6 +100,8 @@ var _time_since_last_landing: float = 999.0
 var _landing_squash: float = 0.0 # 0..max_landing_squash, decays toward 0 each frame
 var _launch_stretch: float = 0.0 # 0..max_launch_stretch, decays toward 0 each frame
 var _jump_cooldown_remaining: float = 0.0
+var _coyote_timer: float = 999.0 # seconds since last on a floor, any cause (jump or walking off a ledge) - see coyote_time above for why jump_cooldown already covers the jump-caused case
+var _jump_buffer_remaining: float = 0.0 # seconds left in which a landing should immediately fire the jump that was pressed too early - see jump_buffer_time above
 
 
 func _ready() -> void:
@@ -120,12 +124,23 @@ func _physics_process(delta: float) -> void:
 
 	_time_since_last_landing += delta
 	_jump_cooldown_remaining = max(_jump_cooldown_remaining - delta, 0.0)
+	_jump_buffer_remaining = max(_jump_buffer_remaining - delta, 0.0)
+	_coyote_timer = 0.0 if on_floor else _coyote_timer + delta
 
 	# Touched down this frame after being airborne last frame: a one-shot
 	# impact that rewards matching your velocity to the new slope instead
 	# of just always preserving speed for free.
 	if on_floor and not _was_on_floor and velocity.length() > landing_min_speed:
 		_apply_landing(tangent)
+
+	# A jump pressed slightly too early (while still airborne, past coyote)
+	# was queued instead of dropped - fire it now, after landing has already
+	# redirected velocity onto the new surface above, so it reads as an
+	# actual hop off the landing rather than getting immediately flattened
+	# back onto the tangent by that same redirect.
+	if on_floor and not _was_on_floor and _jump_buffer_remaining > 0.0:
+		_do_jump()
+		_jump_buffer_remaining = 0.0
 
 	# Left the ground this frame after being grounded last frame: the
 	# takeoff counterpart to landing - popping off a crest cleanly (velocity
@@ -287,18 +302,35 @@ func _get_lean_vector() -> Vector2:
 	return Vector2.ZERO
 
 
-## Grounded-only jump - no double/air jump. Adds the impulse along the floor
-## normal on top of existing velocity (horizontal momentum carries through
-## unchanged), then lets the ordinary on_floor -> airborne transition next
-## physics frame trigger the existing launch-quality system exactly like a
-## terrain-launched hop - a jump aimed well with your current travel gets
-## the same small launch bonus a clean crest pop does, aimed badly costs a
-## little the same mild way. Called directly from the jump button/input,
-## not polled, so a tap always registers as a single discrete jump.
+## Public entry point for a jump input (button/tap). Grounded-or-coyote only
+## - no true air/double jump. Within jump_cooldown of the last jump, the
+## press is just dropped (see jump_cooldown above); otherwise if currently
+## grounded, or within coyote_time of having left the ground, it jumps
+## immediately - and if neither (genuinely airborne, past coyote), the
+## press is queued via jump_buffer_time instead of silently lost, so an
+## early tap on a bumpy section still lands as a jump.
 func jump() -> void:
-	if not is_on_floor() or _jump_cooldown_remaining > 0.0:
+	if _jump_cooldown_remaining > 0.0:
 		return
-	velocity += get_floor_normal() * jump_impulse
+	if is_on_floor() or _coyote_timer <= coyote_time:
+		_do_jump()
+	else:
+		_jump_buffer_remaining = jump_buffer_time
+
+
+## The actual impulse: added along the floor normal on top of existing
+## velocity (horizontal momentum carries through unchanged), then lets the
+## ordinary on_floor -> airborne transition next physics frame trigger the
+## existing launch-quality system exactly like a terrain-launched hop - a
+## jump aimed well with your current travel gets the same small launch
+## bonus a clean crest pop does, aimed badly costs a little the same mild
+## way. Uses _last_grounded_tangent (rather than get_floor_normal(), which
+## Godot may no longer report once actually airborne) rotated back to a
+## normal, so this works identically whether called grounded, on coyote
+## grace, or from a buffered landing.
+func _do_jump() -> void:
+	var normal: Vector2 = Vector2(_last_grounded_tangent.y, -_last_grounded_tangent.x)
+	velocity += normal * jump_impulse
 	_jump_cooldown_remaining = jump_cooldown
 
 
@@ -317,6 +349,8 @@ func reset(spawn_position: Vector2) -> void:
 	_last_grounded_tangent = Vector2.RIGHT
 	_time_since_last_landing = 999.0
 	_jump_cooldown_remaining = 0.0
+	_coyote_timer = 999.0
+	_jump_buffer_remaining = 0.0
 	_landing_squash = 0.0
 	_launch_stretch = 0.0
 	if visual:
