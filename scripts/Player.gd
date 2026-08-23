@@ -53,6 +53,10 @@ extends CharacterBody2D
 @export_group("Air Control")
 @export var air_control_accel: float = 260.0 # px/s^2 extra push along your current trajectory while airborne, when lean points that way (Quake/Trackmania-style "aim where you're going" air control - not free, has to be earned by pointing the stick right)
 
+@export_group("Jump")
+@export var jump_impulse: float = 520.0 # px/s added along the floor normal on a jump input - along the actual slope's normal rather than a fixed world-up, so a jump off an incline pops away from the surface instead of just straight up, consistent with how lean/gravity already treat the real ground tangent as the reference axis, not world-horizontal/vertical
+@export var jump_cooldown: float = 0.15 # seconds of forced delay before another jump can trigger, even if grounded again by then (e.g. a bhop bump) - guards against a single button_down accidentally re-firing across two adjacent physics frames right at a landing, not meant to be a felt limitation during normal play
+
 @export_group("Chain")
 @export var chain_quality_threshold: float = 0.7 # landing quality needed to extend (or start) a chain
 @export var chain_window: float = 3.0 # seconds since the last landing within which another good landing still extends the chain, instead of starting over
@@ -93,6 +97,7 @@ var _last_grounded_tangent: Vector2 = Vector2.RIGHT
 var _time_since_last_landing: float = 999.0
 var _landing_squash: float = 0.0 # 0..max_landing_squash, decays toward 0 each frame
 var _launch_stretch: float = 0.0 # 0..max_launch_stretch, decays toward 0 each frame
+var _jump_cooldown_remaining: float = 0.0
 
 
 func _ready() -> void:
@@ -114,6 +119,7 @@ func _physics_process(delta: float) -> void:
 		tangent = Vector2(-normal.y, normal.x).normalized()
 
 	_time_since_last_landing += delta
+	_jump_cooldown_remaining = max(_jump_cooldown_remaining - delta, 0.0)
 
 	# Touched down this frame after being airborne last frame: a one-shot
 	# impact that rewards matching your velocity to the new slope instead
@@ -281,6 +287,21 @@ func _get_lean_vector() -> Vector2:
 	return Vector2.ZERO
 
 
+## Grounded-only jump - no double/air jump. Adds the impulse along the floor
+## normal on top of existing velocity (horizontal momentum carries through
+## unchanged), then lets the ordinary on_floor -> airborne transition next
+## physics frame trigger the existing launch-quality system exactly like a
+## terrain-launched hop - a jump aimed well with your current travel gets
+## the same small launch bonus a clean crest pop does, aimed badly costs a
+## little the same mild way. Called directly from the jump button/input,
+## not polled, so a tap always registers as a single discrete jump.
+func jump() -> void:
+	if not is_on_floor() or _jump_cooldown_remaining > 0.0:
+		return
+	velocity += get_floor_normal() * jump_impulse
+	_jump_cooldown_remaining = jump_cooldown
+
+
 ## Resets position/velocity/state for an in-game restart (no scene reload).
 func reset(spawn_position: Vector2) -> void:
 	global_position = spawn_position
@@ -295,6 +316,7 @@ func reset(spawn_position: Vector2) -> void:
 	_was_on_floor = false
 	_last_grounded_tangent = Vector2.RIGHT
 	_time_since_last_landing = 999.0
+	_jump_cooldown_remaining = 0.0
 	_landing_squash = 0.0
 	_launch_stretch = 0.0
 	if visual:

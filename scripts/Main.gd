@@ -14,6 +14,7 @@ extends Node2D
 @onready var flow_bar_fill: Control = %FlowBarFill
 @onready var chain_label: Label = %ChainLabel
 @onready var restart_button: Button = %RestartButton
+@onready var jump_button: Button = %JumpButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 
 const PLAYER_GROUND_OFFSET: float = 40.0 # capsule height - keeps feet at the surface, matches Player's local origin-at-feet convention
@@ -69,6 +70,10 @@ func _ready() -> void:
 
 	end_zone.body_entered.connect(_on_end_zone_body_entered)
 	restart_button.pressed.connect(_on_restart_pressed)
+	# button_down (not the .pressed click signal) fires immediately on
+	# touch-down rather than after release, so a jump tap registers as
+	# responsively as the joystick's own direct touch handling.
+	jump_button.button_down.connect(player.jump)
 	_update_timer_label()
 
 
