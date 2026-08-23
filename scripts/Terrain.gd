@@ -101,6 +101,17 @@ func friction_multiplier_at(x: float) -> float:
 	return 1.0
 
 
+## Short debug tag for whichever special zone x is in, "" on plain ground -
+## a HUD readout for this during feel-testing, so a speed change is never
+## ambiguous between "the terrain did that" and "your technique did that."
+func zone_name_at(x: float) -> String:
+	if x >= ICE_ZONE_START_X and x <= ICE_ZONE_END_X:
+		return "ICE"
+	if x >= BHOP_SECTION_START_X:
+		return "BHOP"
+	return ""
+
+
 func _build_ground() -> void:
 	var start_x: float = keyframes[0].x
 	var end_x: float = keyframes[-1].x

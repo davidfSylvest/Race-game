@@ -54,7 +54,8 @@ func _process(delta: float) -> void:
 		_elapsed += delta
 		_update_timer_label()
 
-	speed_label.text = "Speed: %.1f px/s" % player.current_speed
+	var zone: String = terrain.zone_name_at(player.position.x)
+	speed_label.text = "Speed: %.1f px/s%s" % [player.current_speed, ("  [%s]" % zone) if zone != "" else ""]
 	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
 	chain_label.text = _chain_text()
 
