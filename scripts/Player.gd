@@ -77,6 +77,7 @@ extends CharacterBody2D
 
 @onready var joystick: Control = %Joystick
 @onready var visual: Node2D = $Visual
+@onready var terrain: Node2D = %Terrain
 
 var current_speed: float = 0.0
 var flow: float = 0.0 # 0..1, see "Flow Meter" above
@@ -202,8 +203,12 @@ func _physics_process(delta: float) -> void:
 
 	# Friction bleeds ground-speed (the tangential component) every frame,
 	# lean or no lean; it never touches the perpendicular/airborne component.
+	# Terrain can locally scale how much of that loss actually applies (an
+	# ice patch means far less grip, so you carry way more speed through it).
+	var friction_scale: float = terrain.friction_multiplier_at(position.x) if on_floor and terrain and terrain.has_method("friction_multiplier_at") else 1.0
+	var effective_friction_decay: float = 1.0 - (1.0 - friction_decay) * friction_scale
 	var ground_speed_now: float = velocity.dot(tangent)
-	velocity += tangent * (ground_speed_now * (friction_decay - 1.0))
+	velocity += tangent * (ground_speed_now * (effective_friction_decay - 1.0))
 
 	_was_on_floor = on_floor
 	_landing_squash = max(_landing_squash - landing_squash_decay_rate * delta, 0.0)

@@ -10,8 +10,17 @@ extends Node2D
 @export var ground_thickness: float = 500.0 # how far the solid ground extends below the lowest point
 @export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
 @export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
+@export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking the low-friction patch
 
 const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the bhop bumps begin, below
+
+## Low-friction patch on valley 1's flat floor, right after hill 1's
+## downhill - Trackmania-style momentum test: much less grip means you
+## carry way more speed into the climb ahead if you managed it well
+## approaching the ice, and much less control to correct if you didn't.
+const ICE_ZONE_START_X: float = 1400.0
+const ICE_ZONE_END_X: float = 1900.0
+@export var ice_friction_scale: float = 0.15 # fraction of normal friction loss while on the ice - 0.15 means ~85% less grip than normal ground
 
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
@@ -84,6 +93,14 @@ func course_end_x() -> float:
 	return keyframes[-1].x
 
 
+## Fraction of normal friction loss at world x - 1.0 everywhere except the
+## ice patch. Queried by Player.gd every physics frame, so keep it cheap.
+func friction_multiplier_at(x: float) -> float:
+	if x >= ICE_ZONE_START_X and x <= ICE_ZONE_END_X:
+		return ice_friction_scale
+	return 1.0
+
+
 func _build_ground() -> void:
 	var start_x: float = keyframes[0].x
 	var end_x: float = keyframes[-1].x
@@ -112,27 +129,38 @@ func _build_ground() -> void:
 	collision.polygon = polygon_points
 	body.add_child(collision)
 
-	# Visual is split into two polygons purely for color, sharing sample
-	# points at the boundary so there's no seam/gap - collision above stays
-	# a single unified polygon, unaffected by this split.
-	var split_index: int = _top_points.size() - 1
-	for i in range(_top_points.size()):
-		if _top_points[i].x >= BHOP_SECTION_START_X:
-			split_index = i
-			break
+	# Visual is split into colored zones sharing sample points at every
+	# boundary (no seam/gap) - collision above stays a single unified
+	# polygon, completely unaffected by how the visual is carved up.
+	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, BHOP_SECTION_START_X, end_x]
+	boundaries.sort()
+	for i in range(boundaries.size() - 1):
+		var seg_start: float = boundaries[i]
+		var seg_end: float = boundaries[i + 1]
+		if seg_end <= seg_start:
+			continue
+		var mid: float = (seg_start + seg_end) / 2.0
+		var color: Color = ground_color
+		if mid >= ICE_ZONE_START_X and mid <= ICE_ZONE_END_X:
+			color = ice_accent_color
+		elif mid >= BHOP_SECTION_START_X:
+			color = bhop_accent_color
+		_add_visual_segment(body, seg_start, seg_end, color, bottom_y)
 
-	var main_points: PackedVector2Array = _top_points.slice(0, split_index + 1)
-	main_points.append(Vector2(main_points[main_points.size() - 1].x, bottom_y))
-	main_points.append(Vector2(start_x, bottom_y))
-	var main_visual := Polygon2D.new()
-	main_visual.polygon = main_points
-	main_visual.color = ground_color
-	body.add_child(main_visual)
 
-	var bhop_points: PackedVector2Array = _top_points.slice(split_index, _top_points.size())
-	bhop_points.append(Vector2(end_x, bottom_y))
-	bhop_points.append(Vector2(bhop_points[0].x, bottom_y))
-	var bhop_visual := Polygon2D.new()
-	bhop_visual.polygon = bhop_points
-	bhop_visual.color = bhop_accent_color
-	body.add_child(bhop_visual)
+func _add_visual_segment(body: Node, seg_start: float, seg_end: float, color: Color, bottom_y: float) -> void:
+	var start_index: int = 0
+	while start_index < _top_points.size() - 1 and _top_points[start_index].x < seg_start:
+		start_index += 1
+	var end_index: int = start_index
+	while end_index < _top_points.size() - 1 and _top_points[end_index].x < seg_end:
+		end_index += 1
+
+	var points: PackedVector2Array = _top_points.slice(start_index, end_index + 1)
+	points.append(Vector2(points[points.size() - 1].x, bottom_y))
+	points.append(Vector2(points[0].x, bottom_y))
+
+	var visual := Polygon2D.new()
+	visual.polygon = points
+	visual.color = color
+	body.add_child(visual)

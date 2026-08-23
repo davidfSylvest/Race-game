@@ -169,6 +169,15 @@ overrode player input) that a headless smoke test caught before commit.
   neutral in a fraction of a second) on top of the lean-driven crouch/
   stand, so an impact/pop actually reads as a physical event instead of
   just a speed number changing a moment later.
+- One low-friction ice patch (Terrain.gd's `ICE_ZONE_START_X`/`END_X`,
+  visually a pale blue segment on valley 1's flat floor) - `friction_decay`
+  is scaled way down there, so you carry much more speed through it than
+  normal ground would let you. A Trackmania-style momentum test: reward if
+  you arrive fast and aimed well, more to manage if you arrive sloppy.
+  `Terrain.friction_multiplier_at(x)` is queried by Player.gd every
+  physics frame while grounded; a generalized `_add_visual_segment` helper
+  in Terrain.gd carves the ground visual into as many colored zones as
+  needed (ice, bhop, plain) while collision stays one unified polygon.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
