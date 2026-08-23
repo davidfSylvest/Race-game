@@ -85,6 +85,7 @@ var flow: float = 0.0 # 0..1, see "Flow Meter" above
 var chain_count: int = 0 # consecutive good-quality landings within chain_window of each other
 var last_landing_quality: float = -1.0 # -1 = no landing yet this run; HUD readout
 var last_launch_quality: float = -1.0 # ditto, for launches
+var landing_event_id: int = 0 # increments once per actual landing, so Main.gd can edge-detect a fresh landing (e.g. to trigger camera shake) instead of polling last_landing_quality for changes
 
 var _was_on_floor: bool = false
 var _last_grounded_tangent: Vector2 = Vector2.RIGHT
@@ -243,6 +244,7 @@ func _apply_landing(tangent: Vector2) -> void:
 	velocity = landing_target * pre_speed * lerp(landing_penalty_worst, landing_bonus_best, landing_quality)
 	flow = clamp(flow + lerp(-landing_flow_swing, landing_flow_swing, landing_quality), 0.0, 1.0)
 	last_landing_quality = landing_quality
+	landing_event_id += 1
 	_landing_squash = (1.0 - landing_quality) * max_landing_squash
 
 	# Bhop-style chain: a good landing soon after the last one extends the
@@ -286,6 +288,7 @@ func reset(spawn_position: Vector2) -> void:
 	chain_count = 0
 	last_landing_quality = -1.0
 	last_launch_quality = -1.0
+	landing_event_id = 0
 	_was_on_floor = false
 	_last_grounded_tangent = Vector2.RIGHT
 	_time_since_last_landing = 999.0

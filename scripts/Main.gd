@@ -27,12 +27,23 @@ const CAMERA_LOOKAHEAD_MAX: float = 260.0 # px offset toward travel direction at
 const CAMERA_EASE: float = 0.08
 const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point before an auto-recovery kicks in
 
+# A rough landing already reads on the character (squash) and the HUD
+# ("ROUGH" chain text), but neither of those is visible in your peripheral
+# vision the way the whole screen moving is - a camera shake sells the hit
+# as an actual impact. Uses Camera2D.offset (not .position) so the jolt is
+# instant and separate from the eased lookahead lerp below, which would
+# otherwise smooth a sharp shake into a soft, unconvincing wobble.
+const MAX_LANDING_SHAKE_PX: float = 14.0 # shake amplitude on a completely mismatched (quality 0) landing; scales down to ~0 on a clean one
+const CAMERA_SHAKE_DECAY_PX_PER_SEC: float = 45.0 # how fast the shake amplitude bleeds back to 0 - fast/snappy, not a lingering wobble
+
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
 var _spawn_position: Vector2
 var _best_time: float = -1.0 # session-only, no persistence - just gives restart-and-retry a sense of progress
 var _fall_recovery_y: float = 0.0
+var _camera_shake_amount: float = 0.0
+var _last_seen_landing_event: int = 0
 
 
 func _ready() -> void:
@@ -73,6 +84,12 @@ func _process(delta: float) -> void:
 	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
 	chain_label.text = _chain_text()
 
+	if player.landing_event_id != _last_seen_landing_event:
+		_last_seen_landing_event = player.landing_event_id
+		var shake: float = (1.0 - player.last_landing_quality) * MAX_LANDING_SHAKE_PX
+		_camera_shake_amount = max(_camera_shake_amount, shake)
+	_camera_shake_amount = max(_camera_shake_amount - CAMERA_SHAKE_DECAY_PX_PER_SEC * delta, 0.0)
+
 	_update_camera()
 
 
@@ -95,6 +112,8 @@ func _update_camera() -> void:
 	if player.velocity.length() > 10.0:
 		lookahead = player.velocity.normalized() * CAMERA_LOOKAHEAD_MAX * speed_t
 	camera.position = camera.position.lerp(lookahead, CAMERA_EASE)
+
+	camera.offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _camera_shake_amount if _camera_shake_amount > 0.0 else Vector2.ZERO
 
 
 func _update_timer_label() -> void:
@@ -124,6 +143,9 @@ func _on_end_zone_body_entered(body: Node) -> void:
 func _on_restart_pressed() -> void:
 	player.reset(_spawn_position)
 	camera.reset_smoothing()
+	camera.offset = Vector2.ZERO
+	_camera_shake_amount = 0.0
+	_last_seen_landing_event = player.landing_event_id
 	_elapsed = 0.0
 	_timer_running = false
 	_finished = false
