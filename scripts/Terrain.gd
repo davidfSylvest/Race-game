@@ -13,8 +13,28 @@ extends Node2D
 @export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
 @export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking the low-friction patch
 @export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking the high-friction patch
+@export var boost_accent_color: Color = Color(0.95, 0.9, 0.15, 1) # electric yellow-gold marking the boost pad, distinct from every other zone color
 
 const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the bhop bumps begin, below
+
+## A Trackmania-style boost pad. First tried on crest 2's flat top (right
+## before hill 2's descent into the roller bump) but a headless test caught
+## a bad interaction: the extra speed sent a tangent-tracking bot into a
+## bigger arc off that descent, and the resulting worse-than-usual landing
+## angle fed straight into _apply_landing's mismatch penalty, eating back
+## most of what the boost gave and making every simulated policy's overall
+## time WORSE, not better - the boost mechanic worked exactly as designed,
+## the placement just fed it straight into the one system that punishes
+## exactly the kind of extra momentum it hands out. Moved to the flat run
+## after the bhop section instead (still ahead of the actual finish
+## trigger, and past x=8700 there's no more terrain to launch off before
+## the flat finish straight begins) - a reward for clearing the course's
+## hardest stretch with no crest/landing to punish the extra speed. Unlike
+## ice/mud (continuous friction scaling, read every physics frame), this is
+## a one-shot edge-triggered kick applied once per crossing - see
+## Player.gd's boost_multiplier and _was_in_boost_zone.
+const BOOST_ZONE_START_X: float = 8700.0
+const BOOST_ZONE_END_X: float = 8900.0
 
 ## Low-friction patch on valley 1's flat floor, right after hill 1's
 ## downhill - Trackmania-style momentum test: much less grip means you
@@ -123,6 +143,12 @@ func friction_multiplier_at(x: float) -> float:
 	return 1.0
 
 
+## True while x is inside the boost pad - queried once per frame by Player.gd
+## to edge-detect entering the zone, same idea as an on_floor transition.
+func is_boost_zone_at(x: float) -> bool:
+	return x >= BOOST_ZONE_START_X and x <= BOOST_ZONE_END_X
+
+
 ## Short debug tag for whichever special zone x is in, "" on plain ground -
 ## a HUD readout for this during feel-testing, so a speed change is never
 ## ambiguous between "the terrain did that" and "your technique did that."
@@ -131,6 +157,8 @@ func zone_name_at(x: float) -> String:
 		return "ICE"
 	if x >= MUD_ZONE_START_X and x <= MUD_ZONE_END_X:
 		return "MUD"
+	if x >= BOOST_ZONE_START_X and x <= BOOST_ZONE_END_X:
+		return "BOOST"
 	if x >= BHOP_SECTION_START_X:
 		return "BHOP"
 	return ""
@@ -170,7 +198,7 @@ func _build_ground() -> void:
 	# Visual is split into colored zones sharing sample points at every
 	# boundary (no seam/gap) - collision above stays a single unified
 	# polygon, completely unaffected by how the visual is carved up.
-	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, MUD_ZONE_START_X, MUD_ZONE_END_X, BHOP_SECTION_START_X, end_x]
+	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, MUD_ZONE_START_X, MUD_ZONE_END_X, BOOST_ZONE_START_X, BOOST_ZONE_END_X, BHOP_SECTION_START_X, end_x]
 	boundaries.sort()
 	for i in range(boundaries.size() - 1):
 		var seg_start: float = boundaries[i]
@@ -183,6 +211,8 @@ func _build_ground() -> void:
 			color = ice_accent_color
 		elif mid >= MUD_ZONE_START_X and mid <= MUD_ZONE_END_X:
 			color = mud_accent_color
+		elif mid >= BOOST_ZONE_START_X and mid <= BOOST_ZONE_END_X:
+			color = boost_accent_color
 		elif mid >= BHOP_SECTION_START_X:
 			color = bhop_accent_color
 		_add_visual_segment(body, seg_start, seg_end, color, bottom_y)

@@ -252,11 +252,34 @@ overrode player input) that a headless smoke test caught before commit.
   specifically the "built huge speed and now coasting passively" style of
   play that mud punishes). `Terrain.friction_multiplier_at(x)` is queried
   by Player.gd every physics frame while grounded; `Terrain.zone_name_at(x)`
-  feeds a `[ICE]`/`[MUD]`/`[BHOP]` tag onto the speed HUD readout so a
+  feeds a `[ICE]`/`[MUD]`/`[BOOST]`/`[BHOP]` tag onto the speed HUD readout so a
   speed change is never ambiguous between terrain and technique. A
   generalized `_add_visual_segment` helper in Terrain.gd carves the ground
   visual into as many colored zones as needed while collision stays one
   unified polygon throughout.
+- A Trackmania-style boost pad (`Terrain.BOOST_ZONE_START_X`/`END_X`,
+  electric yellow-gold) gives a one-shot flat multiplier
+  (`Player.boost_multiplier`) to velocity's current magnitude the instant
+  you enter it while grounded - unlike ice/mud (a continuous per-frame
+  friction scale), it's an edge-triggered kick, same pattern as
+  `_apply_launch`, gated by `_was_in_boost_zone` so it fires once per
+  crossing, not every frame you're inside it. First placed on crest 2's
+  flat top (right before hill 2's descent) as a reward for a good mud-patch
+  climb, but a headless bot test caught a bad interaction: the extra speed
+  sent the bot into a bigger arc off that descent, and the resulting worse
+  landing angle fed straight into `_apply_landing`'s mismatch penalty,
+  eating back most of the boost and making every simulated policy's overall
+  time *worse*, not better - the boost mechanic worked exactly as designed,
+  the placement just handed extra momentum straight to the one system built
+  to punish exactly that. Moved to the flat run after the bhop section
+  (x=8700-8900) instead, where there's no more terrain to launch off before
+  the flat finish straight - re-verified with the same bot that it no
+  longer goes airborne or gets scrubbed by a landing, and the full 4-policy
+  benchmark came back at least as fast as the pre-boost baseline for every
+  policy. Worth remembering for any future zone/pad placement: extra
+  momentum dropped right before a crest or launch point can come back to
+  bite you through the landing-quality system - a flat, launch-free runway
+  is the safe kind of place to hand out free speed.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 

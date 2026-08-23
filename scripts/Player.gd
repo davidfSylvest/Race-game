@@ -53,6 +53,9 @@ extends CharacterBody2D
 @export_group("Air Control")
 @export var air_control_accel: float = 260.0 # px/s^2 extra push along your current trajectory while airborne, when lean points that way (Quake/Trackmania-style "aim where you're going" air control - not free, has to be earned by pointing the stick right)
 
+@export_group("Boost")
+@export var boost_multiplier: float = 1.3 # flat multiplier applied to velocity's current magnitude the instant you enter a boost pad zone while grounded - a Trackmania staple. Unlike ice/mud (a continuous per-frame friction scale), this is a one-shot edge-triggered kick, same pattern as _apply_launch, so driving through slowly still gets boosted but a fast, well-managed approach gets launched much harder - momentum in, momentum out, no separate skill check of its own
+
 @export_group("Jump")
 @export var jump_impulse: float = 520.0 # px/s added along the floor normal on a jump input - along the actual slope's normal rather than a fixed world-up, so a jump off an incline pops away from the surface instead of just straight up, consistent with how lean/gravity already treat the real ground tangent as the reference axis, not world-horizontal/vertical
 @export var jump_cooldown: float = 0.15 # seconds of forced delay before another jump can trigger, even if grounded again by then (e.g. a bhop bump) - guards against a single button_down accidentally re-firing across two adjacent physics frames right at a landing, not meant to be a felt limitation during normal play
@@ -102,6 +105,7 @@ var _launch_stretch: float = 0.0 # 0..max_launch_stretch, decays toward 0 each f
 var _jump_cooldown_remaining: float = 0.0
 var _coyote_timer: float = 999.0 # seconds since last on a floor, any cause (jump or walking off a ledge) - see coyote_time above for why jump_cooldown already covers the jump-caused case
 var _jump_buffer_remaining: float = 0.0 # seconds left in which a landing should immediately fire the jump that was pressed too early - see jump_buffer_time above
+var _was_in_boost_zone: bool = false # edge-detects entering a boost pad, same idea as _was_on_floor for landings
 
 
 func _ready() -> void:
@@ -234,6 +238,17 @@ func _physics_process(delta: float) -> void:
 	var ground_speed_now: float = velocity.dot(tangent)
 	velocity += tangent * (ground_speed_now * (effective_friction_decay - 1.0))
 
+	# Boost pad: a one-shot kick on the frame you enter the zone, applied
+	# after friction above so it isn't immediately damped the same frame it
+	# lands - the full boost_multiplier actually carries into this frame's
+	# move_and_slide(). Grounded-only (there's no pad to detect while airborne
+	# anyway, since this checks position.x against a ground zone, not a
+	# trigger volume).
+	var in_boost_zone: bool = on_floor and terrain and terrain.has_method("is_boost_zone_at") and terrain.is_boost_zone_at(position.x)
+	if in_boost_zone and not _was_in_boost_zone:
+		velocity *= boost_multiplier
+	_was_in_boost_zone = in_boost_zone
+
 	_was_on_floor = on_floor
 	_landing_squash = max(_landing_squash - landing_squash_decay_rate * delta, 0.0)
 	_launch_stretch = max(_launch_stretch - launch_stretch_decay_rate * delta, 0.0)
@@ -351,6 +366,7 @@ func reset(spawn_position: Vector2) -> void:
 	_jump_cooldown_remaining = 0.0
 	_coyote_timer = 999.0
 	_jump_buffer_remaining = 0.0
+	_was_in_boost_zone = false
 	_landing_squash = 0.0
 	_launch_stretch = 0.0
 	if visual:
