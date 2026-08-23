@@ -70,6 +70,8 @@ extends CharacterBody2D
 @export var max_tilt_degrees: float = 35.0 # visual tilt (forward/back) at full effective lean.x
 @export var max_crouch_scale: float = 0.35 # vertical squash/stretch at full effective lean.y - crouch tucking down, stand tall leaning up, so the angle-matching mechanic is visible, not just felt
 @export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
+@export var max_landing_squash: float = 0.4 # extra one-shot squash on a completely mismatched landing, on top of the lean-driven crouch - a rough landing should visibly read as an impact, a clean one barely shows it
+@export var landing_squash_decay_rate: float = 3.0 # per second, how fast the squash springs back out
 
 @onready var joystick: Control = %Joystick
 @onready var visual: Node2D = $Visual
@@ -83,6 +85,7 @@ var last_launch_quality: float = -1.0 # ditto, for launches
 var _was_on_floor: bool = false
 var _last_grounded_tangent: Vector2 = Vector2.RIGHT
 var _time_since_last_landing: float = 999.0
+var _landing_squash: float = 0.0 # 0..max_landing_squash, decays toward 0 each frame
 
 
 func _ready() -> void:
@@ -200,6 +203,7 @@ func _physics_process(delta: float) -> void:
 	velocity += tangent * (ground_speed_now * (friction_decay - 1.0))
 
 	_was_on_floor = on_floor
+	_landing_squash = max(_landing_squash - landing_squash_decay_rate * delta, 0.0)
 
 	move_and_slide()
 
@@ -229,6 +233,7 @@ func _apply_landing(tangent: Vector2) -> void:
 	velocity = landing_target * pre_speed * lerp(landing_penalty_worst, landing_bonus_best, landing_quality)
 	flow = clamp(flow + lerp(-landing_flow_swing, landing_flow_swing, landing_quality), 0.0, 1.0)
 	last_landing_quality = landing_quality
+	_landing_squash = (1.0 - landing_quality) * max_landing_squash
 
 	# Bhop-style chain: a good landing soon after the last one extends the
 	# streak; a good landing after too long a gap starts a fresh one at 1;
@@ -273,6 +278,7 @@ func reset(spawn_position: Vector2) -> void:
 	_was_on_floor = false
 	_last_grounded_tangent = Vector2.RIGHT
 	_time_since_last_landing = 999.0
+	_landing_squash = 0.0
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0
@@ -281,10 +287,12 @@ func reset(spawn_position: Vector2) -> void:
 
 ## Tilts the character toward the current lean.x, squashes/stretches it
 ## toward lean.y (crouch tucking down, stand tall leaning up - the visible
-## half of "match your lean angle to the slope").
+## half of "match your lean angle to the slope"), and layers a brief extra
+## squash on top right after a landing - proportional to how rough it was,
+## so an impact actually reads as an impact instead of just a speed change.
 func _update_visual(lean: Vector2) -> void:
 	if not visual:
 		return
 	visual.rotation = lean.x * deg_to_rad(max_tilt_degrees)
-	visual.scale.y = 1.0 - lean.y * max_crouch_scale
+	visual.scale.y = clamp(1.0 - lean.y * max_crouch_scale - _landing_squash, 0.3, 1.6)
 	visual.modulate = normal_color
