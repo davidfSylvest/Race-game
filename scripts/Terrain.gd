@@ -21,6 +21,15 @@ const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the b
 const ICE_ZONE_START_X: float = 1400.0
 const ICE_ZONE_END_X: float = 1900.0
 @export var ice_friction_scale: float = 0.15 # fraction of normal friction loss while on the ice - 0.15 means ~85% less grip than normal ground
+@export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking the high-friction patch
+
+## Ice's opposite: a high-friction patch on valley 2's floor, right after
+## hill 2's downhill. Aggressively bleeds the speed you carried in - tests
+## the complementary skill of quickly re-accelerating/re-aiming into the
+## next climb instead of relying on momentum you can no longer coast on.
+const MUD_ZONE_START_X: float = 4600.0
+const MUD_ZONE_END_X: float = 5000.0
+@export var mud_friction_scale: float = 3.5 # multiple of normal friction loss while in the mud
 
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
@@ -93,11 +102,13 @@ func course_end_x() -> float:
 	return keyframes[-1].x
 
 
-## Fraction of normal friction loss at world x - 1.0 everywhere except the
-## ice patch. Queried by Player.gd every physics frame, so keep it cheap.
+## Fraction (or multiple) of normal friction loss at world x - 1.0 on plain
+## ground. Queried by Player.gd every physics frame, so keep it cheap.
 func friction_multiplier_at(x: float) -> float:
 	if x >= ICE_ZONE_START_X and x <= ICE_ZONE_END_X:
 		return ice_friction_scale
+	if x >= MUD_ZONE_START_X and x <= MUD_ZONE_END_X:
+		return mud_friction_scale
 	return 1.0
 
 
@@ -107,6 +118,8 @@ func friction_multiplier_at(x: float) -> float:
 func zone_name_at(x: float) -> String:
 	if x >= ICE_ZONE_START_X and x <= ICE_ZONE_END_X:
 		return "ICE"
+	if x >= MUD_ZONE_START_X and x <= MUD_ZONE_END_X:
+		return "MUD"
 	if x >= BHOP_SECTION_START_X:
 		return "BHOP"
 	return ""
@@ -143,7 +156,7 @@ func _build_ground() -> void:
 	# Visual is split into colored zones sharing sample points at every
 	# boundary (no seam/gap) - collision above stays a single unified
 	# polygon, completely unaffected by how the visual is carved up.
-	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, BHOP_SECTION_START_X, end_x]
+	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, MUD_ZONE_START_X, MUD_ZONE_END_X, BHOP_SECTION_START_X, end_x]
 	boundaries.sort()
 	for i in range(boundaries.size() - 1):
 		var seg_start: float = boundaries[i]
@@ -154,6 +167,8 @@ func _build_ground() -> void:
 		var color: Color = ground_color
 		if mid >= ICE_ZONE_START_X and mid <= ICE_ZONE_END_X:
 			color = ice_accent_color
+		elif mid >= MUD_ZONE_START_X and mid <= MUD_ZONE_END_X:
+			color = mud_accent_color
 		elif mid >= BHOP_SECTION_START_X:
 			color = bhop_accent_color
 		_add_visual_segment(body, seg_start, seg_end, color, bottom_y)
