@@ -11,6 +11,7 @@ extends Node2D
 @export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
 @export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
 @export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking the low-friction patch
+@export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking the high-friction patch
 
 const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the bhop bumps begin, below
 
@@ -21,7 +22,6 @@ const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the b
 const ICE_ZONE_START_X: float = 1400.0
 const ICE_ZONE_END_X: float = 1900.0
 @export var ice_friction_scale: float = 0.15 # fraction of normal friction loss while on the ice - 0.15 means ~85% less grip than normal ground
-@export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking the high-friction patch
 
 ## Ice's opposite: a high-friction patch on valley 2's floor, right after
 ## hill 2's downhill. Aggressively bleeds the speed you carried in - tests
