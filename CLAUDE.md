@@ -308,6 +308,28 @@ overrode player input) that a headless smoke test caught before commit.
   mistake above - verified with a headless bot that the resulting arc lands
   back on flat/gently-curving ground (0.84 landing quality after ~1s of air)
   instead of getting dumped into a slope and eaten by the landing penalty.
+- With jump, boost, and the launch pad all landed, ran a combined-systems
+  stress test that calls `jump()` unconditionally on *every single physics
+  frame* (60/sec) while also tangent-tracking lean perfectly, racing the
+  whole course. It went chaotic: continuous mid-air bouncing, speeds past
+  1500 px/s, and one run reversed hard enough to fly backward off the
+  spawn-side runway. Root cause: calling `jump()` every frame keeps
+  `_jump_buffer_remaining` perpetually re-armed while airborne (it only
+  needs re-arming faster than `jump_buffer_time`, 0.12s), so literally
+  every landing gets an automatic instant re-launch before the character
+  ever settles, and a landing redirect off a chaotic bounce can legitimately
+  point in an unexpected direction. Turned out to be unreachable in
+  practice, not a bug to fix: Main.gd wires `player.jump()` to the JUMP
+  button's `button_down` *signal*, which Godot fires exactly once per
+  physical touch-down with no auto-repeat - no human tap sequence can
+  replicate a 60Hz unconditional call. Re-ran the identical policy at ~10
+  taps/sec (already faster than anyone can realistically mash a touchscreen
+  button, and still faster than `jump_buffer_time`) and it finished clean,
+  no reversal, no runaway. And even the impossible 60Hz case never produced
+  an unrecoverable state - it fell off the world exactly like the earlier
+  reverse-lean bug used to, and the existing fall-recovery safety net caught
+  it and reset the run same as always. Left as-is; recorded here so it
+  isn't independently "discovered" and chased again later.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
