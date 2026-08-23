@@ -11,7 +11,7 @@ extends Node2D
 @export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
 @export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
 
-const BHOP_SECTION_START_X: float = 6800.0 # must match the keyframe where the bhop bumps begin, below
+const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the bhop bumps begin, below
 
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
@@ -22,28 +22,35 @@ var keyframes: Array[Vector2] = [
 	Vector2(1900, 1050), # valley 1 floor
 	Vector2(2900, 600),  # crest 1
 	Vector2(3300, 600),  # flat top of crest 1
-	Vector2(4300, 1150), # bottom of hill 2's downhill (deeper, further out)
-	Vector2(4800, 1150), # valley 2 floor
-	Vector2(5700, 700),  # crest 2
-	Vector2(6100, 700),  # flat top of crest 2
-	Vector2(6800, 950),  # gentle final descent (bottom of the two big hills)
+	# Hill 2's descent gets one roller bump partway down - a taste of the
+	# chain mechanic mid-course, not just at the dedicated bhop section at
+	# the very end. Widened the overall run (was a straight 1000px drop,
+	# now 1400px) so inserting the bump doesn't force any segment steeper
+	# than a comfortable ~45deg peak.
+	Vector2(3700, 820),  # descent begins
+	Vector2(3900, 760),  # roller bump (gentle, ~17deg avg - meant to be easy to chain off)
+	Vector2(4500, 1150), # bottom of hill 2's downhill
+	Vector2(5000, 1150), # valley 2 floor
+	Vector2(5900, 700),  # crest 2
+	Vector2(6300, 700),  # flat top of crest 2
+	Vector2(7000, 950),  # gentle final descent (bottom of the two big hills)
 	# Bhop section: a rhythmic run of bumps, sized so a fast rider can chain
 	# several clean launch/land cycles in a row - the two big crests each
 	# only give one real jump per run, which isn't enough to actually feel
 	# the chain-streak system in action. ~100px rise over ~160px run keeps
 	# the peak slope around 43deg (safely under floor_max_angle's 55deg)
 	# while still being sharp enough for a fast rider to actually launch.
-	Vector2(6960, 850),
-	Vector2(7120, 950),
-	Vector2(7280, 850),
-	Vector2(7440, 950),
-	Vector2(7600, 850),
-	Vector2(7760, 950),
-	Vector2(7920, 850),
-	Vector2(8080, 950),
-	Vector2(8240, 820),  # one bigger bump to close the run out
-	Vector2(8420, 950),
-	Vector2(9200, 950),  # finish straight
+	Vector2(7160, 850),
+	Vector2(7320, 950),
+	Vector2(7480, 850),
+	Vector2(7640, 950),
+	Vector2(7800, 850),
+	Vector2(7960, 950),
+	Vector2(8120, 850),
+	Vector2(8280, 950),
+	Vector2(8440, 820),  # one bigger bump to close the run out
+	Vector2(8620, 950),
+	Vector2(9400, 950),  # finish straight
 ]
 
 var _top_points: PackedVector2Array = PackedVector2Array()
