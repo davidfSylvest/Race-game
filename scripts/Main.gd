@@ -21,9 +21,9 @@ const END_ZONE_HEIGHT: float = 400.0
 const END_ZONE_MARGIN: float = 100.0 # back off from the very last keyframe so there's a flat runway after it
 
 const CAMERA_BASE_ZOOM: float = 0.85
-const CAMERA_MIN_ZOOM: float = 0.6 # zoomed out this far at CAMERA_ZOOM_SPEED_REF and above
-const CAMERA_ZOOM_SPEED_REF: float = 500.0 # px/s at which zoom reaches its minimum
-const CAMERA_LOOKAHEAD_MAX: float = 220.0 # px offset toward travel direction at full speed, so blind crests on the now-long course are readable
+const CAMERA_MIN_ZOOM: float = 0.55 # zoomed out this far at CAMERA_ZOOM_SPEED_REF and above
+const CAMERA_ZOOM_SPEED_REF: float = 850.0 # px/s at which zoom reaches its minimum - raised from 500 since Flow/Chain bonuses now routinely push speed past 1000 px/s, and the old reference maxed the zoom out well before that, making the camera look identical at 500 vs 1160 despite a very different pace
+const CAMERA_LOOKAHEAD_MAX: float = 260.0 # px offset toward travel direction at full speed, so blind crests on the now-long course are readable
 const CAMERA_EASE: float = 0.08
 
 var _elapsed: float = 0.0
