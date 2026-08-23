@@ -90,13 +90,20 @@ overrode player input) that a headless smoke test caught before commit.
 - `scripts/Player.gd` — the physics core. All movement tuning lives here as
   `@export` vars grouped by concern (Acceleration, Top Speed Curve,
   Gravity, Slope Response, Lean Alignment, Landing/Launch Quality, Air
-  Control, Chain, Flow Meter, Lean Visual). `reset(spawn_position)`
-  re-centers state for the in-game restart — no scene reload.
+  Control, Jump, Chain, Flow Meter, Lean Visual). `reset(spawn_position)`
+  re-centers state for the in-game restart — no scene reload. `jump()` is
+  the public entry point for the JUMP button (grounded-or-coyote only, with
+  buffering — see Movement design below); `landing_event_id`/
+  `launch_event_id` are incrementing counters Main.gd polls to edge-detect
+  a fresh landing/launch (for camera shake/zoom-kick) without duplicating
+  the on_floor-transition logic that already lives here.
 - `scripts/Joystick.gd` — fixed bottom-left virtual joystick. Touch primary,
   mouse fallback for desktop testing. `get_vector()` returns deflection as
   a `Vector2`: length 0–1 is magnitude, direction is lean angle.
-- `scripts/Main.gd` — HUD readouts (timer, speed, best time), restart
-  button wiring, end-zone signal handling.
+- `scripts/Main.gd` — HUD readouts (timer, speed, best time, Flow bar,
+  Chain text), restart button wiring, JUMP button wiring (`button_down`,
+  not `.pressed`, so a tap registers on touch-down like the joystick does),
+  end-zone signal handling, camera zoom/lookahead/shake/zoom-kick.
 - The course has one mid-course roller bump (partway down hill 2's descent)
   plus a dedicated bhop section (small rhythmic bumps) right before the
   finish, so the chain/flow/landing/launch systems have places to actually
@@ -174,6 +181,25 @@ overrode player input) that a headless smoke test caught before commit.
   the stick along your current trajectory (not world-horizontal) - an
   air-strafe-style reward for aiming where you're already going instead of
   coasting passively through a jump.
+- Manual jump: a JUMP button (bottom-right, thumb-opposite the joystick)
+  adds `jump_impulse` along the *floor normal* (not world-up), so a jump off
+  an incline pops away from the surface consistent with how lean/gravity
+  already treat the real slope as the reference axis. Standard forgiveness
+  pairing on top of the raw impulse: `coyote_time` lets a press just after
+  walking off a ledge/crest still fire as grounded, `jump_buffer_time`
+  queues a press made slightly too early (already airborne) to fire the
+  instant you land, and `jump_cooldown` (kept above coyote_time) blocks
+  re-firing across adjacent frames without needing separate double-jump
+  bookkeeping. A buffered jump fires *after* that frame's landing-redirect,
+  not before, so it reads as a hop off the landing instead of being
+  immediately flattened back onto the tangent by that same redirect. A
+  jump feeds into the existing launch-quality system exactly like a
+  terrain-launched hop — aimed well with your current travel, same small
+  bonus a clean crest pop gets. Verified via headless bot that spamming
+  jump every grounded frame with zero lean can't grind out free downhill
+  speed (a jump has no directional intent of its own without lean): that
+  policy only covered 16% of the course in 90s, worse than the weakest
+  lean-only policy.
 - Bhop-style chain: consecutive good-quality landings within a few seconds
   of each other build a streak (HUD: "CLEAN Chain x3"), each link adding a
   capped bonus to the ceiling/accel on top of Flow - a gap that's too long
@@ -183,7 +209,18 @@ overrode player input) that a headless smoke test caught before commit.
   a rough landing, stretch on a clean launch, both decaying back to
   neutral in a fraction of a second) on top of the lean-driven crouch/
   stand, so an impact/pop actually reads as a physical event instead of
-  just a speed number changing a moment later.
+  just a speed number changing a moment later. The same two events also
+  drive camera feedback in Main.gd: a rough landing shakes `Camera2D.offset`
+  (not `.position`, so the jolt is instant and independent of the eased
+  lookahead lerp), and a clean launch briefly zooms the camera out
+  (`MAX_LAUNCH_ZOOM_KICK`) as launch's mild, "not a mistake" symmetric
+  counterpart to the landing shake — it only fires on good launches, never
+  bad ones. Both track `player.landing_event_id`/`launch_event_id` rather
+  than polling quality values, since quality alone can't distinguish "a new
+  landing happened" from "no landing happened yet, still -1."
+- The character also tints from `normal_color` toward `flow_color` as Flow
+  rises toward 1.0, so Flow reads as a visible in-the-moment state on the
+  character itself, not just a HUD bar you have to glance away to check.
 - One low-friction ice patch (valley 1's floor, pale blue) and its
   opposite, one high-friction mud patch (valley 2's floor, brown) -
   `friction_decay` is scaled way down on ice (carry much more speed
