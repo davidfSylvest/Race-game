@@ -20,8 +20,10 @@ Presentation" under Architecture. A follow-up request went further, asking
 for the visual code itself to be restructured into "separate, swappable
 systems" (a silhouette-based terrain renderer, a parallax background, a
 speed-trail effect, a camera rig) plus a speed-scaled camera streak/
-chromatic shader and a time-of-day/biome palette system - see the same
-"Visual Presentation" section for what that split into (`TerrainRenderer.gd`,
+chromatic shader (since removed - the user found the blur-at-speed effect
+undesirable, see the streak-blur note under "Visual Presentation") and a
+time-of-day/biome palette system - see the same "Visual Presentation"
+section for what the systems split into (`TerrainRenderer.gd`,
 `TrailEffect.gd`, `CameraRig.gd`, `TimeOfDayPalette.gd`/`PaletteController.gd`).
 Both visual requests are still scoped to what was asked (procedural
 shading/lighting/depth cues and their modular organization, not an
@@ -375,32 +377,15 @@ wrong-Godot-version risk at the top of this file to corrupt.
   `NOTIFICATION_READY`, before this script ever existed on the node.
   Without an explicit `set_process(true)` inside `init()`, CameraRig looked
   completely wired up (script attached, fields set) but silently never
-  ticked - caught headlessly by watching zoom/position/streak-intensity stay
-  frozen at their init() values while `player.current_speed` visibly climbed
-  in the same test.
-  - **Speed-scaled streak/chromatic overlay** (`shaders/streak_blur.gdshader`,
-    a `ColorRect` + `ShaderMaterial` built by `CameraRig._build_streak_overlay()`):
-    reads `SCREEN_TEXTURE` and samples it several times along the player's
-    current travel direction with decreasing weight (a directional streak
-    blur), plus a small per-channel offset along that same direction for a
-    touch of chromatic aberration - both scale with `intensity`, which
-    CameraRig sets from `current_speed / streak_speed_ref` every frame, so
-    at rest the shader collapses to a no-op copy of the screen. This has to
-    sit on a canvas item drawn AFTER gameplay (so there's something to blur)
-    but BEFORE the HUD (so speed/timer text never gets streaked) - the
-    overlay's own `CanvasLayer` uses `layer = 1`, and both `.tscn` files now
-    give the `UI` `CanvasLayer` an explicit `layer = 10` so that ordering can
-    never depend on scene-tree tiebreaking. The overlay node is parented
-    under `get_tree().current_scene` (i.e. `Main`), not `get_tree().root` -
-    the `LevelButton`'s `change_scene_to_file()` frees the old
-    `current_scene` and everything under it but does NOT touch nodes
-    attached directly to root, so parenting there would leak one overlay
-    per level switch. Confirmed the shader actually compiles and catches
-    real GLSL errors even in this GPU-less environment: deliberately fed
-    Godot's dummy rendering driver a broken shader first and it reported a
-    real `SHADER ERROR` with line/column info, so headless testing here can
-    validate shader *syntax* even though it obviously can't confirm the
-    rendered *look*.
+  ticked - caught headlessly by watching zoom/position stay frozen at their
+  init() values while `player.current_speed` visibly climbed in the same
+  test. (A speed-scaled directional streak-blur/chromatic-aberration
+  overlay briefly lived here too, built from a `shaders/streak_blur.gdshader`
+  full-screen `ColorRect`+`ShaderMaterial` - removed after the user found
+  the blur-at-speed effect undesirable. `UI`'s `CanvasLayer.layer = 10` in
+  both `.tscn` files predates that removal and is now just an explicit,
+  harmless value rather than a real ordering requirement - no need to touch
+  it back.)
 - **Time-of-day / biome palette** (`scripts/TimeOfDayPalette.gd`, a
   `Resource` subtype with `sunrise()`/`day()`/`dusk()` static presets, plus
   `scripts/PaletteController.gd`): one `apply_preset()` call recolors sky,
@@ -446,8 +431,8 @@ wrong-Godot-version risk at the top of this file to corrupt.
   the new nodes exist with sane values (shadow alpha shrinking with height,
   glow color actually shifting toward `flow_color` as Flow rises, tile
   seams matching exactly at the math level, trail width/alpha/length
-  scaling with speed, camera zoom/lookahead/streak-intensity all actually
-  changing per-frame, all three palette presets recoloring the right fields
+  scaling with speed, camera zoom/lookahead all actually changing per-frame,
+  all three palette presets recoloring the right fields
   while leaving zone accents untouched), and - most importantly - that none
   of it touched the physics/collision path (re-ran the full 4-policy
   benchmark on both levels after every pass in this section; every number

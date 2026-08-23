@@ -1,12 +1,11 @@
 extends Camera2D
 
 ## Fully self-contained camera behavior: speed-based zoom-out, travel-
-## direction lookahead, a landing-only shake, a launch-only zoom kick, and a
-## speed-scaled directional streak-blur/chromatic overlay (the "FOV widens
-## and streaks appear at speed" feel). Main.gd's only contact with this
-## script is init(player) once at startup and reset_camera() on restart -
-## everything else drives itself every frame by polling the player it was
-## given, so camera behavior lives entirely in this one swappable file.
+## direction lookahead, a landing-only shake, and a launch-only zoom kick.
+## Main.gd's only contact with this script is init(player) once at startup
+## and reset_camera() on restart - everything else drives itself every
+## frame by polling the player it was given, so camera behavior lives
+## entirely in this one swappable file.
 ##
 ## Attached to the EXISTING Camera2D node at runtime (see Main.gd's
 ## _ready(), which calls set_script() on the Player-owned Camera2D) rather
@@ -28,19 +27,12 @@ extends Camera2D
 @export var max_launch_zoom_kick: float = 0.05 # zoom units subtracted (zoomed further out) on a perfectly-matched launch - mild, a launch isn't really a "mistake" the way a bad landing is, so unlike the shake this only fires on GOOD launches
 @export var zoom_kick_decay_per_sec: float = 0.18
 
-@export_group("Speed Streak/Chromatic Overlay")
-@export var streak_enabled: bool = true
-@export var streak_speed_ref: float = 900.0 # px/s at which the overlay reaches full intensity
-@export var streak_max_offset: float = 0.018 # forwarded to the shader - see streak_blur.gdshader
-@export var streak_chromatic_amount: float = 0.0035
-
 var _player: CharacterBody2D = null
 var _zoom_smoothed: float = 0.0
 var _shake_amount: float = 0.0
 var _zoom_kick: float = 0.0
 var _last_seen_landing_event: int = 0
 var _last_seen_launch_event: int = 0
-var _streak_material: ShaderMaterial = null
 
 
 func init(player: CharacterBody2D) -> void:
@@ -49,11 +41,9 @@ func init(player: CharacterBody2D) -> void:
 	# _process() - Godot only auto-enables per-frame processing once, from
 	# the ORIGINAL script's NOTIFICATION_READY, before this script ever
 	# existed on the node. Without this line CameraRig silently never ticks -
-	# caught via a headless test where speed climbed but zoom/position/streak
-	# intensity all stayed frozen at their init() values.
+	# caught via a headless test where speed climbed but zoom/position all
+	# stayed frozen at their init() values.
 	set_process(true)
-	if streak_enabled and not _streak_material:
-		_build_streak_overlay()
 	reset_camera()
 
 
@@ -96,41 +86,3 @@ func _process(delta: float) -> void:
 	position = position.lerp(lookahead, ease)
 
 	offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake_amount if _shake_amount > 0.0 else Vector2.ZERO
-
-	if _streak_material:
-		var streak_t: float = clamp(_player.current_speed / streak_speed_ref, 0.0, 1.0)
-		_streak_material.set_shader_parameter("intensity", streak_t)
-		if _player.velocity.length() > 10.0:
-			_streak_material.set_shader_parameter("blur_direction", _player.velocity.normalized())
-
-
-## Full-screen ColorRect reading SCREEN_TEXTURE, sitting in its own
-## CanvasLayer between the world (implicit layer 0) and the UI (layer 10,
-## set explicitly in both .tscn files specifically so this ordering can
-## never be ambiguous) - it has to draw after gameplay to blur it, and
-## before the HUD so speed/timer text never gets streaked.
-##
-## Parented under the CURRENT SCENE (Main), not get_tree().root - the
-## LevelButton swaps scenes via change_scene_to_file(), which frees the old
-## current_scene and everything under it but does NOT touch nodes attached
-## directly to root, so parenting there would leak one of these every level
-## switch. Living under Main means it's freed for free with the rest of the
-## old scene.
-func _build_streak_overlay() -> void:
-	var layer := CanvasLayer.new()
-	layer.layer = 1
-
-	var rect := ColorRect.new()
-	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rect.color = Color.WHITE
-
-	_streak_material = ShaderMaterial.new()
-	_streak_material.shader = preload("res://shaders/streak_blur.gdshader")
-	_streak_material.set_shader_parameter("intensity", 0.0)
-	_streak_material.set_shader_parameter("max_offset", streak_max_offset)
-	_streak_material.set_shader_parameter("chromatic_amount", streak_chromatic_amount)
-	rect.material = _streak_material
-
-	layer.add_child(rect)
-	get_tree().current_scene.add_child(layer)
