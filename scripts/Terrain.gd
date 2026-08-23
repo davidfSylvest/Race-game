@@ -9,6 +9,9 @@ extends Node2D
 @export var sample_spacing: float = 24.0 # world px between collision/visual sample points; smaller = smoother curve
 @export var ground_thickness: float = 500.0 # how far the solid ground extends below the lowest point
 @export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
+@export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
+
+const BHOP_SECTION_START_X: float = 6800.0 # must match the keyframe where the bhop bumps begin, below
 
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
@@ -102,7 +105,27 @@ func _build_ground() -> void:
 	collision.polygon = polygon_points
 	body.add_child(collision)
 
-	var visual := Polygon2D.new()
-	visual.polygon = polygon_points
-	visual.color = ground_color
-	body.add_child(visual)
+	# Visual is split into two polygons purely for color, sharing sample
+	# points at the boundary so there's no seam/gap - collision above stays
+	# a single unified polygon, unaffected by this split.
+	var split_index: int = _top_points.size() - 1
+	for i in range(_top_points.size()):
+		if _top_points[i].x >= BHOP_SECTION_START_X:
+			split_index = i
+			break
+
+	var main_points: PackedVector2Array = _top_points.slice(0, split_index + 1)
+	main_points.append(Vector2(main_points[main_points.size() - 1].x, bottom_y))
+	main_points.append(Vector2(start_x, bottom_y))
+	var main_visual := Polygon2D.new()
+	main_visual.polygon = main_points
+	main_visual.color = ground_color
+	body.add_child(main_visual)
+
+	var bhop_points: PackedVector2Array = _top_points.slice(split_index, _top_points.size())
+	bhop_points.append(Vector2(end_x, bottom_y))
+	bhop_points.append(Vector2(bhop_points[0].x, bottom_y))
+	var bhop_visual := Polygon2D.new()
+	bhop_visual.polygon = bhop_points
+	bhop_visual.color = bhop_accent_color
+	body.add_child(bhop_visual)
