@@ -33,7 +33,8 @@ extends CharacterBody2D
 @export_group("Slope Response")
 @export var slope_ceiling_bonus: float = 0.9 # how much a downhill raises (or uphill lowers) the speed ceiling; 0 = flat-ground behavior everywhere
 @export var slope_ceiling_floor: float = 0.32 # uphill can never shrink the ceiling below this fraction of its flat-ground value - kept above a bare crawl so weak/unaimed input on a climb is still slow, not an effective soft-lock
-@export var gravity_slope_assist: float = 0.2 # gentle passive drift downhill even with no lean input; kept small so lean stays the dominant force, not gravity
+@export var gravity_slope_assist_downhill: float = 0.6 # passive downhill roll from gravity alone, no lean required - raised from a single shared 0.2 (now gravity_slope_assist_uphill below) after playtest feedback that downhill rolling felt too weak; a real ball should visibly pick up speed on a slope by itself. Split from the uphill value because pushing the old shared coefficient this high reopened the min_ceiling_with_any_lean soft-lock: a strong enough shared value let passive gravity drag overpower a weak/badly-aimed uphill lean's tiny accel_force enough to stall it near 0 regardless of the nominal ceiling (confirmed via the same weak-uphill headless check that caught the original soft-lock) - splitting the two lets downhill roll however strong feels good with zero uphill risk, since uphill behavior is now byte-for-byte unchanged from before this tuning pass
+@export var gravity_slope_assist_uphill: float = 0.2 # passive uphill drag from gravity - unchanged from the original shared value, see gravity_slope_assist_downhill above for why the two are now independent
 @export var max_combined_ceiling_multiplier: float = 2.2 # hard cap on slope * Flow * Chain stacking together, so a best-case moment can't multiply the ceiling by 3x+
 
 @export_group("Lean Alignment")
@@ -247,10 +248,12 @@ func _physics_process(delta: float) -> void:
 	# Gravity always pulls straight down (needed for airborne falls and floor
 	# detection). On top of that, an explicit tangential assist makes the
 	# downhill/uphill pull on your ground-speed strong and tunable, rather
-	# than relying entirely on incidental floor-collision sliding.
+	# than relying entirely on incidental floor-collision sliding. Downhill
+	# and uphill use independent coefficients - see gravity_slope_assist_downhill.
 	velocity.y += gravity * delta
 	if on_floor:
-		velocity += tangent * (tangent.y * gravity * gravity_slope_assist * delta)
+		var slope_assist: float = gravity_slope_assist_downhill if tangent.y > 0.0 else gravity_slope_assist_uphill
+		velocity += tangent * (tangent.y * gravity * slope_assist * delta)
 
 	# Friction bleeds ground-speed (the tangential component) every frame,
 	# lean or no lean; it never touches the perpendicular/airborne component.

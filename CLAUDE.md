@@ -184,6 +184,22 @@ overrode player input) that a headless smoke test caught before commit.
   check that skill differentiation stays meaningful without any policy
   soft-locking - see git history around the `min_ceiling_with_any_lean`
   commit for the harness.
+- Downhill and uphill passive gravity assist use independent coefficients
+  (`gravity_slope_assist_downhill`/`_uphill`), not one shared value.
+  Playtest feedback said downhill rolling felt too weak - a real ball
+  should visibly pick up speed on a slope with zero lean input. Raising
+  the old single shared `gravity_slope_assist` (0.2) high enough to fix
+  that reopened the `min_ceiling_with_any_lean` soft-lock from above: a
+  strong enough passive term let gravity's drag on a climb overpower a
+  weak/badly-aimed uphill lean's tiny `accel_force` and stall it near 0,
+  since the passive term applies unconditionally every frame regardless of
+  the ceiling logic (the ceiling only bounds the *active* accel step, it
+  doesn't protect against a strong enough opposing passive force). Caught
+  with the exact same weak-uphill headless check used to find the original
+  soft-lock. Splitting the coefficient fixed it cleanly: uphill drag is
+  now byte-for-byte the original 0.2 (re-verified identical time-to-crest
+  and no stall), while downhill can roll as strong as feels good (0.6)
+  with zero uphill risk, since the two no longer share a value at all.
 - There is no fall/wipeout mechanic — leaning hard, in any direction, for
   any length of time, never cuts speed or locks out input. The only
   consequence of a bad lean is the smooth effectiveness penalty above.
