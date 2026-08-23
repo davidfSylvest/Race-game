@@ -132,6 +132,40 @@ overrode player input) that a headless smoke test caught before commit.
   ground-speed every physics frame regardless of input.
 - Lean force is applied along the actual ground tangent (not a fixed
   world-horizontal axis), so slope matters, not just "how hard forward."
+  The tangent itself comes from `Terrain.tangent_at(x)` - an analytic
+  derivative of `height_at()` - rather than `get_floor_normal()`. Switched
+  after the ball-visual conversion made a real, pre-existing roughness
+  problem visible for the first time: `get_floor_normal()` turned out to
+  be genuinely noisy frame-to-frame against the collision polygon (up to
+  ~1.5deg of sign-flipping jitter per frame on an ordinary slope, even
+  after quadrupling the polygon's sample resolution - so not a segment-
+  quantization artifact, something in how Godot resolves contact normals
+  for a rolling `CircleShape2D`). That noise fed straight into the
+  acceleration direction and speed ceiling every frame - invisible on the
+  old humanoid, whose tilt only ever reflected lean input, but a real
+  source of choppy movement once the ball's spin started tracking actual
+  physics output every frame. `height_at()` is itself perfectly smooth
+  (every keyframe is a zero-slope point by construction, per the
+  smoothstep note above), so differentiating it directly gives an
+  exactly-as-smooth tangent by definition, independent of collision
+  polygon resolution. Verified headlessly: frame-to-frame tangent-angle
+  and velocity deltas on an ordinary curved slope went from erratic
+  sign-flipping noise to a clean, continuously-varying curve; the full
+  4-policy benchmark and the launch pad/bhop-section checks all came back
+  materially unchanged (times/launches/chain all consistent with before).
+  Also switched the launch pad's impulse direction to derive from this
+  same tangent (it previously read `get_floor_normal()` directly) so
+  every use of "the ground direction" in a single frame agrees.
+- Acceleration toward the speed ceiling is capped to the remaining
+  headroom each frame (`min(accel_force * delta, headroom)`) rather than
+  added-then-clamped-back-down - the old approach snapped velocity to
+  exactly the ceiling every frame it was reached, which combined with
+  friction pulling a little off that same ceiling every frame regardless
+  into a repeating oscillation right at the ceiling. Investigated as part
+  of the same smoothness pass above; capping to headroom makes the
+  approach asymptotic (settles at whatever equilibrium each frame's capped
+  step offsets that frame's friction loss) instead of oscillating between
+  overshoot and clamp.
 - The player's lean *angle* is expected to track the slope: pointing the
   stick down-and-forward on a downhill and up-and-forward on an uphill is
   mechanically rewarded over just holding a flat push-forward. Getting this

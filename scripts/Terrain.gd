@@ -129,6 +129,29 @@ func height_at(x: float) -> float:
 	return keyframes[-1].y
 
 
+## Ground tangent (unit vector, always +x-ish) at world x, matching the
+## exact curve height_at() traces - computed analytically (a numerical
+## derivative of height_at() itself) rather than read from the collision
+## polygon's per-segment normal. The physics engine's floor normal turned
+## out to be genuinely noisy frame-to-frame (measured up to ~1.5deg of
+## sign-flipping jitter per frame on an ordinary slope, even after
+## quadrupling the polygon's sample resolution - so it isn't a segment-
+## quantization artifact, something in how Godot resolves contact normals
+## for a rolling CircleShape2D against a many-edge polygon each frame).
+## That noise fed straight into the acceleration tangent and speed ceiling
+## every frame - invisible with the old humanoid (whose tilt only reflected
+## lean input, not the ground normal), but a real source of choppy movement
+## once the ball's spin started tracking actual physics output. Since
+## height_at() is itself perfectly smooth (every keyframe is a zero-slope
+## point by construction - see the smoothstep note above), differentiating
+## it directly gives an exactly-as-smooth tangent by definition, with no
+## dependency on collision polygon resolution at all.
+func tangent_at(x: float) -> Vector2:
+	var eps: float = 2.0
+	var slope: float = (height_at(x + eps) - height_at(x - eps)) / (2.0 * eps)
+	return Vector2(1.0, slope).normalized()
+
+
 ## Roughly centered in the flat start zone, giving runway both directions.
 func spawn_x() -> float:
 	return (keyframes[0].x + keyframes[1].x) / 2.0

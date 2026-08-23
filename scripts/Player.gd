@@ -123,12 +123,17 @@ func _physics_process(delta: float) -> void:
 
 	# Ground tangent: the direction "forward along the slope" (matches world
 	# +x on flat ground). Airborne, there's no surface to push against, so
-	# lean falls back to pure horizontal, same as flat ground.
+	# lean falls back to pure horizontal, same as flat ground. Reads
+	# Terrain.tangent_at() (an analytic derivative of the actual curve)
+	# rather than get_floor_normal() - see that function's comment for why:
+	# the physics engine's per-frame contact normal turned out to be
+	# genuinely noisy against the collision polygon, which fed jitter
+	# straight into acceleration direction and the speed ceiling every
+	# single frame.
 	var on_floor: bool = is_on_floor()
 	var tangent: Vector2 = Vector2.RIGHT
 	if on_floor:
-		var normal: Vector2 = get_floor_normal()
-		tangent = Vector2(-normal.y, normal.x).normalized()
+		tangent = terrain.tangent_at(position.x)
 
 	_time_since_last_landing += delta
 	_jump_cooldown_remaining = max(_jump_cooldown_remaining - delta, 0.0)
@@ -200,13 +205,27 @@ func _physics_process(delta: float) -> void:
 			# Accelerate toward the ceiling this lean+slope+flow unlocks, but
 			# never yank existing momentum down if it's already above that
 			# ceiling - velocity only bleeds off via friction_decay, never an
-			# input clamp.
+			# input clamp. Capped to the remaining headroom rather than
+			# added-then-clamped: the old add-full-step-then-clamp-back-down
+			# approach snapped velocity to exactly the ceiling every frame it
+			# was reached, and since friction (below) always pulls a little
+			# off that same ceiling every frame regardless, the two combined
+			# into a real, repeating ~2%-of-speed sawtooth every single
+			# frame at steady state (measured ~7-8 px/s of frame-to-frame
+			# noise while cruising at ~400 px/s) - invisible on the old
+			# humanoid's lean-angle tilt (which only reflected input, not
+			# raw velocity) but immediately visible as a jittery, unsmooth
+			# spin rate once the ball's rotation started tracking
+			# instantaneous velocity directly. Capping to headroom instead
+			# makes the approach to the ceiling asymptotic - it settles at a
+			# steady equilibrium where each frame's capped accel step just
+			# offsets that frame's friction loss, instead of oscillating
+			# between overshoot and clamp.
 			var ground_speed: float = velocity.dot(tangent)
 			if absf(ground_speed) < max_speed_this_frame:
-				velocity += tangent * dir_sign * accel_force * delta
-				var new_ground_speed: float = velocity.dot(tangent)
-				var clamped: float = clamp(new_ground_speed, -max_speed_this_frame, max_speed_this_frame)
-				velocity += tangent * (clamped - new_ground_speed)
+				var headroom: float = max_speed_this_frame - absf(ground_speed)
+				var accel_step: float = min(accel_force * delta, headroom)
+				velocity += tangent * dir_sign * accel_step
 
 	# Air control: while airborne, pointing the stick along your current
 	# trajectory (not just world-horizontal) adds a little extra speed -
@@ -256,12 +275,12 @@ func _physics_process(delta: float) -> void:
 	# Launch pad: same edge-triggered pattern as boost above, but adds impulse
 	# along the floor normal (same axis _do_jump uses) instead of scaling
 	# velocity's magnitude - an automatic launch rather than a speed kick.
-	# Reads the normal fresh here rather than reusing the on-floor `tangent`
-	# computed above, since that's only guaranteed valid this frame while
-	# on_floor is true, which this check already requires.
+	# Derives the normal from the same analytic `tangent` computed above
+	# (rather than get_floor_normal()) so the launch direction is exactly
+	# consistent with the smooth tangent driving everything else this frame.
 	var in_launch_pad_zone: bool = on_floor and terrain and terrain.has_method("is_launch_pad_at") and terrain.is_launch_pad_at(position.x)
 	if in_launch_pad_zone and not _was_in_launch_pad_zone:
-		velocity += get_floor_normal() * launch_pad_impulse
+		velocity += Vector2(tangent.y, -tangent.x) * launch_pad_impulse
 	_was_in_launch_pad_zone = in_launch_pad_zone
 
 	_was_on_floor = on_floor
