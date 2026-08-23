@@ -8,6 +8,7 @@ extends Node2D
 
 @export var sample_spacing: float = 24.0 # world px between collision/visual sample points; smaller = smoother curve
 @export var ground_thickness: float = 500.0 # how far the solid ground extends below the lowest point
+@export var finish_runway: float = 1200.0 # flat ground built past the last keyframe, purely as a safety buffer - NOT counted in course_end_x() (the finish line doesn't move). Main.gd's end-zone trigger sits back from the true polygon edge by a much smaller END_ZONE_MARGIN, and at the speeds this course produces (1000+ px/s) that margin alone is under 0.2s of travel - a player who crosses the line without instantly releasing the stick (i.e. almost everyone) would run clean off the actual end of the terrain a moment later and silently trigger the fall-recovery reset, wiping a run that had just finished. Found via a headless test that kept feeding forward lean past the finish line rather than assuming a player stops the instant they cross.
 @export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
 @export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
 @export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking the low-friction patch
@@ -137,7 +138,10 @@ func zone_name_at(x: float) -> String:
 
 func _build_ground() -> void:
 	var start_x: float = keyframes[0].x
-	var end_x: float = keyframes[-1].x
+	# The physical polygon extends finish_runway past the last keyframe as a
+	# flat safety buffer (see finish_runway above) - course_end_x() still
+	# returns keyframes[-1].x unchanged, so the finish line itself doesn't move.
+	var end_x: float = keyframes[-1].x + finish_runway
 
 	_top_points.clear()
 	var x: float = start_x

@@ -165,6 +165,25 @@ overrode player input) that a headless smoke test caught before commit.
   gap, without needing a precisely-tuned boundary wall. Worth re-running
   a sustained-reverse-lean test after any terrain layout change, since a
   longer/differently-shaped course could shift where this matters.
+- The finish end had the same class of problem from ordinary play, not just
+  a stress test: there's deliberately no results screen, so crossing the
+  end-zone only stops the timer - it doesn't freeze the player. But the
+  actual ground polygon used to stop exactly at `course_end_x()`, with only
+  Main.gd's small `END_ZONE_MARGIN` (100px) of flat buffer beyond the
+  trigger - under 0.2s of travel at the 1000+ px/s this course produces. A
+  player who crosses the line without instantly releasing the stick (i.e.
+  nearly everyone) would run clean off the true edge a moment later and
+  silently trigger the fall-recovery reset above, wiping a run that had
+  just finished. Found the same way as the reverse-lean fall: by continuing
+  to feed forward lean past the finish in a headless test instead of
+  assuming play stops the instant the line is crossed. Fixed with
+  `Terrain.finish_runway`: `_build_ground()` extends the physical polygon
+  that much further past the last keyframe, flat, purely as a safety
+  buffer - `course_end_x()` still returns the original keyframe position
+  unchanged, so the finish line itself doesn't move and normal race times
+  are unaffected (bots/players that ease off at the line never reach the
+  extra ground). Same pattern already used for the runway behind spawn,
+  applied to the other end of the course.
 - Flow state: technique compounds instead of resetting between sections.
   Landing a jump redirects velocity onto the new slope's tangent, scaled by
   how well your airborne velocity matched it — land clean, keep/gain speed;
