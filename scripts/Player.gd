@@ -25,13 +25,14 @@ extends CharacterBody2D
 @export_group("Top Speed Curve")
 @export var top_speed_constant: float = 650.0 # px/s ceiling at full lean on flat ground
 @export var speed_exponent: float = 2.5 # exponential steepness of the lean -> top speed curve
+@export var min_ceiling_with_any_lean: float = 90.0 # px/s floor on the ceiling whenever there's real lean intent (directional_magnitude above a tiny threshold) - the exponent + a bad alignment penalty can otherwise compound into a near-crawl on steep uphills (measured ~38 px/s in testing); this doesn't touch the curve for good alignment, only lifts the worst-case floor so bad technique is slow, never an effective soft-lock
 
 @export_group("Gravity")
 @export var gravity: float = 1600.0 # px/s^2, pulls the character down onto slopes
 
 @export_group("Slope Response")
 @export var slope_ceiling_bonus: float = 0.9 # how much a downhill raises (or uphill lowers) the speed ceiling; 0 = flat-ground behavior everywhere
-@export var slope_ceiling_floor: float = 0.2 # uphill can never shrink the ceiling below this fraction of its flat-ground value
+@export var slope_ceiling_floor: float = 0.32 # uphill can never shrink the ceiling below this fraction of its flat-ground value - kept above a bare crawl so weak/unaimed input on a climb is still slow, not an effective soft-lock
 @export var gravity_slope_assist: float = 0.2 # gentle passive drift downhill even with no lean input; kept small so lean stays the dominant force, not gravity
 @export var max_combined_ceiling_multiplier: float = 2.2 # hard cap on slope * Flow * Chain stacking together, so a best-case moment can't multiply the ceiling by 3x+
 
@@ -155,7 +156,7 @@ func _physics_process(delta: float) -> void:
 			# best-case moment from trivializing the course, while each
 			# system still reads clearly on its own below the cap.
 			var combined_multiplier: float = min(slope_multiplier * flow_speed_multiplier, max_combined_ceiling_multiplier)
-			var max_speed_this_frame: float = speed_ratio * top_speed_constant * combined_multiplier
+			var max_speed_this_frame: float = max(speed_ratio * top_speed_constant * combined_multiplier, min_ceiling_with_any_lean)
 
 			# Accelerate toward the ceiling this lean+slope+flow unlocks, but
 			# never yank existing momentum down if it's already above that

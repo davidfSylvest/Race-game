@@ -112,6 +112,20 @@ overrode player input) that a headless smoke test caught before commit.
   stick down-and-forward on a downhill and up-and-forward on an uphill is
   mechanically rewarded over just holding a flat push-forward. Getting this
   wrong isn't a hard clamp to zero — it's a smooth effectiveness penalty.
+  A note from tuning this: the angle-mismatch penalty and the exponential
+  top-speed curve compound multiplicatively, and on a steep uphill with
+  weak/unaimed input this crushed the ceiling to a near-crawl (~38 px/s in
+  testing) - not literally zero, but close enough to read as an effective
+  soft-lock, which cuts against the "no hard clamp to zero" principle even
+  though no single mechanic was "wrong" on its own. Fixed with
+  `min_ceiling_with_any_lean` (a small absolute floor whenever there's any
+  real lean intent) rather than touching the exponent or alignment formula
+  themselves - both are deliberate, explicitly-requested design elements.
+  If tuning this system further, a 3-tier bot benchmark (perfect/decent/
+  poor simulated policies racing the same course) is the fastest way to
+  check that skill differentiation stays meaningful without any policy
+  soft-locking - see git history around the `min_ceiling_with_any_lean`
+  commit for the harness.
 - There is no fall/wipeout mechanic — leaning hard, in any direction, for
   any length of time, never cuts speed or locks out input. The only
   consequence of a bad lean is the smooth effectiveness penalty above.
