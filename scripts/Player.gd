@@ -87,7 +87,7 @@ var _time_since_last_landing: float = 999.0
 
 func _ready() -> void:
 	floor_max_angle = deg_to_rad(55.0)
-	floor_snap_length = 12.0
+	floor_snap_length = 5.0
 
 
 func _physics_process(delta: float) -> void:

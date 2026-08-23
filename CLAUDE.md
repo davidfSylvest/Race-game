@@ -97,6 +97,19 @@ overrode player input) that a headless smoke test caught before commit.
   a `Vector2`: length 0–1 is magnitude, direction is lean angle.
 - `scripts/Main.gd` — HUD readouts (timer, speed, best time), restart
   button wiring, end-zone signal handling.
+- The course ends in a bhop section (small rhythmic bumps) specifically so
+  the chain/flow/landing/launch systems have a place to actually chain
+  several jumps in a row - the two big hills each only give ~1 real jump
+  per run. Getting these to actually launch required lowering
+  `floor_snap_length` (12 -> 5): Godot's floor snapping quietly absorbs
+  any separation smaller than that value regardless of slope angle, so a
+  bump can look plenty steep and still never produce real air time if it's
+  small in absolute scale. If tuning bump size/spacing, re-check that
+  bumps still generate real on_floor transitions (a quick instrumented
+  headless run, not just eyeballing the slope angle) - a bot that
+  re-aligns its lean to the tangent every frame will actively hug bumps
+  instead of separating from them, so test with a fixed lean / momentum
+  coast approach instead, closer to how a real player at speed behaves.
 
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)

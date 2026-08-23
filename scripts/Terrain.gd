@@ -23,8 +23,24 @@ var keyframes: Array[Vector2] = [
 	Vector2(4800, 1150), # valley 2 floor
 	Vector2(5700, 700),  # crest 2
 	Vector2(6100, 700),  # flat top of crest 2
-	Vector2(6800, 950),  # gentle final descent
-	Vector2(7600, 950),  # finish straight
+	Vector2(6800, 950),  # gentle final descent (bottom of the two big hills)
+	# Bhop section: a rhythmic run of bumps, sized so a fast rider can chain
+	# several clean launch/land cycles in a row - the two big crests each
+	# only give one real jump per run, which isn't enough to actually feel
+	# the chain-streak system in action. ~100px rise over ~160px run keeps
+	# the peak slope around 43deg (safely under floor_max_angle's 55deg)
+	# while still being sharp enough for a fast rider to actually launch.
+	Vector2(6960, 850),
+	Vector2(7120, 950),
+	Vector2(7280, 850),
+	Vector2(7440, 950),
+	Vector2(7600, 850),
+	Vector2(7760, 950),
+	Vector2(7920, 850),
+	Vector2(8080, 950),
+	Vector2(8240, 820),  # one bigger bump to close the run out
+	Vector2(8420, 950),
+	Vector2(9200, 950),  # finish straight
 ]
 
 var _top_points: PackedVector2Array = PackedVector2Array()
