@@ -86,6 +86,7 @@ var chain_count: int = 0 # consecutive good-quality landings within chain_window
 var last_landing_quality: float = -1.0 # -1 = no landing yet this run; HUD readout
 var last_launch_quality: float = -1.0 # ditto, for launches
 var landing_event_id: int = 0 # increments once per actual landing, so Main.gd can edge-detect a fresh landing (e.g. to trigger camera shake) instead of polling last_landing_quality for changes
+var launch_event_id: int = 0 # ditto, for launches (e.g. to trigger a camera zoom-kick)
 
 var _was_on_floor: bool = false
 var _last_grounded_tangent: Vector2 = Vector2.RIGHT
@@ -270,6 +271,7 @@ func _apply_launch(tangent: Vector2) -> void:
 	var launch_quality: float = clamp(velocity.normalized().dot(launch_target), 0.0, 1.0)
 	velocity *= lerp(launch_penalty_worst, launch_bonus_best, launch_quality)
 	last_launch_quality = launch_quality
+	launch_event_id += 1
 	_launch_stretch = launch_quality * max_launch_stretch
 
 
@@ -289,6 +291,7 @@ func reset(spawn_position: Vector2) -> void:
 	last_landing_quality = -1.0
 	last_launch_quality = -1.0
 	landing_event_id = 0
+	launch_event_id = 0
 	_was_on_floor = false
 	_last_grounded_tangent = Vector2.RIGHT
 	_time_since_last_landing = 999.0

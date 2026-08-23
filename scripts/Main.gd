@@ -36,6 +36,15 @@ const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point 
 const MAX_LANDING_SHAKE_PX: float = 14.0 # shake amplitude on a completely mismatched (quality 0) landing; scales down to ~0 on a clean one
 const CAMERA_SHAKE_DECAY_PX_PER_SEC: float = 45.0 # how fast the shake amplitude bleeds back to 0 - fast/snappy, not a lingering wobble
 
+# Launch's symmetric counterpart to the landing shake above: a clean launch
+# pops the camera briefly wider (zoom OUT, since lower Camera2D.zoom values
+# show more world) to sell the "leaving the ground" moment, easing back to
+# the normal speed-based zoom just as fast as it appeared. Mild by design -
+# per Player.gd, a launch isn't really a "mistake" the way a bad landing is,
+# so unlike the shake this only fires on good launches, not bad ones.
+const MAX_LAUNCH_ZOOM_KICK: float = 0.05 # zoom units subtracted (zoomed further out) on a perfectly-matched (quality 1) launch
+const CAMERA_ZOOM_KICK_DECAY_PER_SEC: float = 0.18 # how fast the kick eases back out
+
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
@@ -44,6 +53,9 @@ var _best_time: float = -1.0 # session-only, no persistence - just gives restart
 var _fall_recovery_y: float = 0.0
 var _camera_shake_amount: float = 0.0
 var _last_seen_landing_event: int = 0
+var _camera_zoom_kick: float = 0.0
+var _last_seen_launch_event: int = 0
+var _camera_zoom_smoothed: float = CAMERA_BASE_ZOOM # eased speed-based zoom, kept separate from camera.zoom itself so the kick (applied only to the final displayed value) never feeds back into next frame's ease source
 
 
 func _ready() -> void:
@@ -90,6 +102,12 @@ func _process(delta: float) -> void:
 		_camera_shake_amount = max(_camera_shake_amount, shake)
 	_camera_shake_amount = max(_camera_shake_amount - CAMERA_SHAKE_DECAY_PX_PER_SEC * delta, 0.0)
 
+	if player.launch_event_id != _last_seen_launch_event:
+		_last_seen_launch_event = player.launch_event_id
+		var kick: float = player.last_launch_quality * MAX_LAUNCH_ZOOM_KICK
+		_camera_zoom_kick = max(_camera_zoom_kick, kick)
+	_camera_zoom_kick = max(_camera_zoom_kick - CAMERA_ZOOM_KICK_DECAY_PER_SEC * delta, 0.0)
+
 	_update_camera()
 
 
@@ -106,7 +124,9 @@ func _chain_text() -> String:
 func _update_camera() -> void:
 	var speed_t: float = clamp(player.current_speed / CAMERA_ZOOM_SPEED_REF, 0.0, 1.0)
 	var target_zoom: float = lerp(CAMERA_BASE_ZOOM, CAMERA_MIN_ZOOM, speed_t)
-	camera.zoom = camera.zoom.lerp(Vector2(target_zoom, target_zoom), CAMERA_EASE)
+	_camera_zoom_smoothed = lerp(_camera_zoom_smoothed, target_zoom, CAMERA_EASE)
+	var displayed_zoom: float = max(_camera_zoom_smoothed - _camera_zoom_kick, CAMERA_MIN_ZOOM * 0.5)
+	camera.zoom = Vector2(displayed_zoom, displayed_zoom)
 
 	var lookahead: Vector2 = Vector2.ZERO
 	if player.velocity.length() > 10.0:
@@ -146,6 +166,9 @@ func _on_restart_pressed() -> void:
 	camera.offset = Vector2.ZERO
 	_camera_shake_amount = 0.0
 	_last_seen_landing_event = player.landing_event_id
+	_camera_zoom_kick = 0.0
+	_camera_zoom_smoothed = CAMERA_BASE_ZOOM
+	_last_seen_launch_event = player.launch_event_id
 	_elapsed = 0.0
 	_timer_running = false
 	_finished = false
