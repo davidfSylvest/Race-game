@@ -131,6 +131,11 @@ overrode player input) that a headless smoke test caught before commit.
   the stick along your current trajectory (not world-horizontal) - an
   air-strafe-style reward for aiming where you're already going instead of
   coasting passively through a jump.
+- Bhop-style chain: consecutive good-quality landings within a few seconds
+  of each other build a streak (HUD: "CLEAN Chain x3"), each link adding a
+  capped bonus to the ceiling/accel on top of Flow - a gap that's too long
+  or a bad landing resets it. Rewards stringing jumps together rather than
+  landing once and coasting.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 

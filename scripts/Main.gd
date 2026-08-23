@@ -12,6 +12,7 @@ extends Node2D
 @onready var speed_label: Label = %SpeedLabel
 @onready var flow_bar_bg: Control = %FlowBarBg
 @onready var flow_bar_fill: Control = %FlowBarFill
+@onready var chain_label: Label = %ChainLabel
 @onready var restart_button: Button = %RestartButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 
@@ -55,8 +56,19 @@ func _process(delta: float) -> void:
 
 	speed_label.text = "Speed: %.1f px/s" % player.current_speed
 	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
+	chain_label.text = _chain_text()
 
 	_update_camera()
+
+
+func _chain_text() -> String:
+	if player.last_landing_quality < 0.0:
+		return ""
+	var quality: float = player.last_landing_quality
+	var word: String = "PERFECT" if quality >= 0.9 else ("CLEAN" if quality >= 0.7 else ("OK" if quality >= 0.4 else "ROUGH"))
+	if player.chain_count > 1:
+		return "%s   Chain x%d" % [word, player.chain_count]
+	return word
 
 
 func _update_camera() -> void:

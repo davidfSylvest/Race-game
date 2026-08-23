@@ -51,6 +51,12 @@ extends CharacterBody2D
 @export_group("Air Control")
 @export var air_control_accel: float = 260.0 # px/s^2 extra push along your current trajectory while airborne, when lean points that way (Quake/Trackmania-style "aim where you're going" air control - not free, has to be earned by pointing the stick right)
 
+@export_group("Chain")
+@export var chain_quality_threshold: float = 0.7 # landing quality needed to extend (or start) a chain
+@export var chain_window: float = 3.0 # seconds since the last landing within which another good landing still extends the chain, instead of starting over
+@export var chain_bonus_per_link: float = 0.04 # +this fraction of ceiling/accel per chain link
+@export var chain_max_bonus: float = 0.4 # hard cap on the total chain bonus, however long the streak runs
+
 @export_group("Flow Meter")
 @export var flow_good_threshold: float = 0.6 # directional_magnitude at/above this, while grounded, counts as "good technique"
 @export var flow_gain_rate: float = 0.35 # per second, while sustaining good technique
@@ -68,9 +74,13 @@ extends CharacterBody2D
 
 var current_speed: float = 0.0
 var flow: float = 0.0 # 0..1, see "Flow Meter" above
+var chain_count: int = 0 # consecutive good-quality landings within chain_window of each other
+var last_landing_quality: float = -1.0 # -1 = no landing yet this run; HUD readout
+var last_launch_quality: float = -1.0 # ditto, for launches
 
 var _was_on_floor: bool = false
 var _last_grounded_tangent: Vector2 = Vector2.RIGHT
+var _time_since_last_landing: float = 999.0
 
 
 func _ready() -> void:
@@ -90,6 +100,8 @@ func _physics_process(delta: float) -> void:
 	if on_floor:
 		var normal: Vector2 = get_floor_normal()
 		tangent = Vector2(-normal.y, normal.x).normalized()
+
+	_time_since_last_landing += delta
 
 	# Touched down this frame after being airborne last frame: a one-shot
 	# impact that rewards matching your velocity to the new slope instead
@@ -129,8 +141,9 @@ func _physics_process(delta: float) -> void:
 		directional_magnitude = lerp(raw_magnitude, aligned_magnitude, alignment_influence)
 
 		if directional_magnitude > 0.0:
-			var flow_speed_multiplier: float = 1.0 + flow * flow_speed_bonus
-			var flow_accel_multiplier: float = 1.0 + flow * flow_accel_bonus
+			var chain_multiplier: float = 1.0 + min(chain_count * chain_bonus_per_link, chain_max_bonus)
+			var flow_speed_multiplier: float = (1.0 + flow * flow_speed_bonus) * chain_multiplier
+			var flow_accel_multiplier: float = (1.0 + flow * flow_accel_bonus) * chain_multiplier
 			var accel_force: float = directional_magnitude * max_accel_constant * flow_accel_multiplier
 			var speed_ratio: float = pow(directional_magnitude, speed_exponent)
 			var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
@@ -206,6 +219,16 @@ func _apply_landing(tangent: Vector2) -> void:
 	var landing_quality: float = clamp(velocity.normalized().dot(landing_target), 0.0, 1.0)
 	velocity = landing_target * pre_speed * lerp(landing_penalty_worst, landing_bonus_best, landing_quality)
 	flow = clamp(flow + lerp(-landing_flow_swing, landing_flow_swing, landing_quality), 0.0, 1.0)
+	last_landing_quality = landing_quality
+
+	# Bhop-style chain: a good landing soon after the last one extends the
+	# streak; a good landing after too long a gap starts a fresh one at 1;
+	# a bad landing breaks it back to 0.
+	if landing_quality >= chain_quality_threshold:
+		chain_count = chain_count + 1 if _time_since_last_landing <= chain_window else 1
+	else:
+		chain_count = 0
+	_time_since_last_landing = 0.0
 
 
 ## One-shot speed adjustment at the instant of leaving the ground: the
@@ -220,6 +243,7 @@ func _apply_launch(tangent: Vector2) -> void:
 	var launch_target: Vector2 = tangent if travel_sign >= 0.0 else -tangent
 	var launch_quality: float = clamp(velocity.normalized().dot(launch_target), 0.0, 1.0)
 	velocity *= lerp(launch_penalty_worst, launch_bonus_best, launch_quality)
+	last_launch_quality = launch_quality
 
 
 func _get_lean_vector() -> Vector2:
@@ -234,8 +258,12 @@ func reset(spawn_position: Vector2) -> void:
 	velocity = Vector2.ZERO
 	current_speed = 0.0
 	flow = 0.0
+	chain_count = 0
+	last_landing_quality = -1.0
+	last_launch_quality = -1.0
 	_was_on_floor = false
 	_last_grounded_tangent = Vector2.RIGHT
+	_time_since_last_landing = 999.0
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0
