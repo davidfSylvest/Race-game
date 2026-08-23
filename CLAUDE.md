@@ -2,10 +2,17 @@
 
 A Godot 2D mobile prototype whose entire purpose is testing the *feel* of a
 lean-based movement system on hilly terrain. It is explicitly not a game yet:
-no menus, no title screen, no results screen, no second course, no save
-system, no ghost/replay. Gray-box art only (procedurally generated colored
-polygons). Do not add any of the "DO NOT BUILD" items below unless the user
-explicitly asks for that specific thing in that specific message.
+no menus, no title screen, no results screen, no save system, no
+ghost/replay. Gray-box art only (procedurally generated colored polygons).
+Do not add any of the "DO NOT BUILD" items below unless the user explicitly
+asks for that specific thing in that specific message.
+
+There are now two levels (the user explicitly asked for a second course, so
+that item moved out of "DO NOT BUILD" - see the two-level architecture note
+under Architecture). That's a deliberate, one-time exception to the rule
+below, not a sign the rule has loosened generally: still don't add a third
+level, a level-select menu screen, or anything else on the DO NOT BUILD list
+unless asked for that specific thing again.
 
 ## Godot version: 4.7.1 — always, no exceptions
 
@@ -110,14 +117,33 @@ overrode player input) that a headless smoke test caught before commit.
 
 ## Architecture
 
-- `scenes/Main.tscn` — the one scene. `Main.gd` orchestrates: timer
-  start/stop, HUD text, restart wiring, and positions the player/end-zone
-  from the procedurally-built terrain rather than hardcoded coordinates.
+- **Two levels, two scenes, one set of scripts.** `scenes/Main.tscn` (level
+  1, the original course) and `scenes/Level2.tscn` (level 2 - see below)
+  share the exact same `Player.gd`/`Main.gd`/`Joystick.gd` and even the same
+  `Terrain.gd` script; the only per-scene difference is a single `level`
+  property on the Terrain node (`1` in Main.tscn, `2` in Level2.tscn - see
+  `Terrain._configure_level()`). A small `LevelButton` in the HUD (same
+  category as Restart/Jump, not a menu screen) calls
+  `get_tree().change_scene_to_file(...)` to swap between them - each scene
+  swap is a full fresh load (new Player, new Terrain, new Main), so there's
+  no cross-level state to manage; even the session-only best time naturally
+  resets per level for free. Don't build a level-select menu or a third
+  level unless asked - see the top of this file.
 - `scripts/Terrain.gd` — builds the ground at runtime from a `keyframes`
   array of `(x, y)` control points, smoothstep-interpolated between them
   (curved, not linear) into one `CollisionPolygon2D` + `Polygon2D`. Exposes
   `height_at(x)`, `spawn_x()`, `course_end_x()` so other scripts never
-  hardcode the course layout.
+  hardcode the course layout. Special terrain (ice/mud/boost/launch/bhop/
+  flow) is a generic `zones: Array[Dictionary]` of `{type, start, end}`
+  rather than one pair of consts per zone type - this is what lets a level
+  have as many of each kind as its layout needs (level 2 has two boost pads
+  and two bhop-style corridors; level 1 still has exactly one of each, just
+  expressed as a one-entry-per-type zones list now instead of dedicated
+  consts). `_configure_level()` picks which keyframes/zones list to load
+  (`_level_1_*()` / `_level_2_*()`) based on the `level` export, before
+  `_build_ground()` runs - a fix to `height_at()`/`tangent_at()`/any zone
+  helper automatically applies to both levels, since neither level
+  duplicates that logic.
 - `scripts/Player.gd` — the physics core. All movement tuning lives here as
   `@export` vars grouped by concern (Acceleration, Top Speed Curve,
   Gravity, Slope Response, Lean Alignment, Landing/Launch Quality, Air
@@ -347,12 +373,13 @@ overrode player input) that a headless smoke test caught before commit.
   specifically the "built huge speed and now coasting passively" style of
   play that mud punishes). `Terrain.friction_multiplier_at(x)` is queried
   by Player.gd every physics frame while grounded; `Terrain.zone_name_at(x)`
-  feeds a `[ICE]`/`[MUD]`/`[BOOST]`/`[BHOP]` tag onto the speed HUD readout so a
-  speed change is never ambiguous between terrain and technique. A
-  generalized `_add_visual_segment` helper in Terrain.gd carves the ground
-  visual into as many colored zones as needed while collision stays one
-  unified polygon throughout.
-- A Trackmania-style boost pad (`Terrain.BOOST_ZONE_START_X`/`END_X`,
+  feeds an `[ICE]`/`[MUD]`/`[BOOST]`/`[LAUNCH]`/`[BHOP]`/`[FLOW]` tag onto the
+  speed HUD readout (whichever `zones` entry covers that x - see
+  Architecture) so a speed change is never ambiguous between terrain and
+  technique. A generalized `_add_visual_segment` helper in Terrain.gd carves
+  the ground visual into as many colored zones as needed while collision
+  stays one unified polygon throughout.
+- A Trackmania-style boost pad (a `"boost"`-type entry in `Terrain.zones`,
   electric yellow-gold) gives a one-shot flat multiplier
   (`Player.boost_multiplier`) to velocity's current magnitude the instant
   you enter it while grounded - unlike ice/mud (a continuous per-frame
@@ -374,9 +401,10 @@ overrode player input) that a headless smoke test caught before commit.
   policy. Worth remembering for any future zone/pad placement: extra
   momentum dropped right before a crest or launch point can come back to
   bite you through the landing-quality system - a flat, launch-free runway
-  is the safe kind of place to hand out free speed.
-- A launch pad (`Terrain.LAUNCH_PAD_START_X`/`END_X`, vivid spring green) is
-  the terrain-triggered counterpart to the manual jump: an automatic pop
+  is the safe kind of place to hand out free speed. (Level 1 keeps its one
+  boost pad at x=8700-8900; level 2 has two, see the level-2 layout note below.)
+- A launch pad (a `"launch"`-type entry in `Terrain.zones`, vivid spring
+  green) is the terrain-triggered counterpart to the manual jump: an automatic pop
   along the floor normal (`Player.launch_pad_impulse`, same axis as
   `jump_impulse`) the instant a grounded player crosses it - no button
   needed. Same edge-triggered one-shot pattern as the boost pad
@@ -411,6 +439,47 @@ overrode player input) that a headless smoke test caught before commit.
   reverse-lean bug used to, and the existing fall-recovery safety net caught
   it and reset the run same as always. Left as-is; recorded here so it
   isn't independently "discovered" and chased again later.
+- **Level 2** (`Terrain._level_2_keyframes()`/`_level_2_zones()`): roughly
+  2x level 1's length (course_end_x ~19300 vs ~9400), built around one long
+  signature "flow" gauntlet - six gentle rolling hills in a row (peak slope
+  ~28deg, deliberately gentler than anything else in either level) with no
+  flat valley floor anywhere in the middle to break grounded contact.
+  Bracketed by two bhop-style bump corridors (the second bigger/harder than
+  the first: ~47deg peak vs ~44deg, six cycles vs four), plus one ice patch,
+  one mud patch, one launch pad, and two boost pads (one right before the
+  flow gauntlet, one right before the finish). The flow gauntlet exists
+  specifically because Player.gd's Flow meter only builds from *sustained,
+  uninterrupted* grounded alignment - level 1's shorter, choppier hills and
+  its bhop corridor's repeated jump-then-reset-Flow-on-landing cycle never
+  gave a skilled rider enough uninterrupted room to actually max Flow out
+  and feel it hold there. Verified headlessly: a tangent-tracking rider
+  holds Flow >= 0.9 for 73.6% of the time spent in the gauntlet, peaking at
+  1.0. Both boost pads and the launch pad were placed following the
+  boost-placement lesson above (flat ground, no descent immediately after)
+  and verified the same way - no airborne-after-boost, no landing-quality
+  scrubbing, clean launch-pad landing. Full 4-policy benchmark all finish
+  with no DNFs (perfect ~33s / decent ~39s / poor ~196s / randomish ~100s -
+  roughly double level 1's times, tracking the roughly-2x length, with
+  "poor" scaling somewhat worse than 2x - a reasonable "harder" signal
+  since it's still nowhere near the benchmark's very generous timeout).
+  Reused level 1's exact validated slope ratios throughout (peak angle =
+  ~1.5x the average rise/run, from smoothstep's derivative shape - see the
+  bhop-tuning note above) rather than inventing new ones, specifically to
+  avoid re-discovering the same slope-safety/floor_snap_length lessons from
+  scratch.
+- Discovered while investigating what looked like a level-1 regression
+  during the Terrain.gd zone-system refactor that made two levels possible
+  (see Architecture): the regression was fake, caused by a broken headless
+  test methodology, not the refactor. See "Validating changes headlessly"
+  above for the full writeup of the bug (manually calling
+  `_physics_process()` races against the engine's own automatic ticking)
+  and the fix (`await get_tree().physics_frame` + `--fixed-fps 60`). Worth
+  remembering: any precise timing number reported in this file from before
+  that fix landed was measured with the broken methodology and may carry
+  more run-to-run noise than the categorical finding (soft-lock found/
+  fixed, bad placement caught, etc.) it was attached to - the categorical
+  findings themselves don't wash out as noise the way exact timings can,
+  so they remain trustworthy even where the specific numbers might not be.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
@@ -423,6 +492,12 @@ overrode player input) that a headless smoke test caught before commit.
   and well-justified formula changes over adding new systems. Validate with
   a headless smoke test that actually measures the numbers, don't just
   "should work" it.
+- Player.gd/Joystick.gd are shared by both levels now - a physics tuning
+  change affects both, so re-run the full-course benchmark on *both*
+  `Main.tscn` and `Level2.tscn` (swap `run/main_scene` in `project.godot`
+  temporarily to point at whichever scene you're validating) before calling
+  a physics change done, not just the level you happened to be thinking
+  about.
 - Don't add UI, menus, persistence, or scope beyond what's asked. A stray
   extra system is a bigger cost here than it looks — this is deliberately a
   minimal feel-test, not a growing game, unless the user says otherwise.

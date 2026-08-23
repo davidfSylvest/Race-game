@@ -5,113 +5,223 @@ extends Node2D
 ## interpolated (ease in/out) rather than linear, so slopes ramp into and
 ## out of hills instead of meeting at sharp angle joints - real curves the
 ## lean/slope physics can react to smoothly.
+##
+## Two levels share this one script rather than duplicating all the height/
+## tangent/friction/zone logic - level (1 or 2) just selects which keyframe
+## list and zone layout _configure_level() loads before _build_ground()
+## runs. Zones (ice/mud/boost/launch/bhop/flow) are a generic
+## {type, start, end} list instead of one const pair per type, so a level
+## can have as many of each kind as its layout needs (level 2 has two boost
+## pads and two bhop-style corridors, level 1 has one of each).
 
+@export var level: int = 1 # 1 or 2 - see _configure_level()
 @export var sample_spacing: float = 24.0 # world px between collision/visual sample points; smaller = smoother curve
 @export var ground_thickness: float = 500.0 # how far the solid ground extends below the lowest point
 @export var finish_runway: float = 1200.0 # flat ground built past the last keyframe, purely as a safety buffer - NOT counted in course_end_x() (the finish line doesn't move). Main.gd's end-zone trigger sits back from the true polygon edge by a much smaller END_ZONE_MARGIN, and at the speeds this course produces (1000+ px/s) that margin alone is under 0.2s of travel - a player who crosses the line without instantly releasing the stick (i.e. almost everyone) would run clean off the actual end of the terrain a moment later and silently trigger the fall-recovery reset, wiping a run that had just finished. Found via a headless test that kept feeding forward lean past the finish line rather than assuming a player stops the instant they cross.
 @export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
-@export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks the chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
-@export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking the low-friction patch
-@export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking the high-friction patch
-@export var boost_accent_color: Color = Color(0.95, 0.9, 0.15, 1) # electric yellow-gold marking the boost pad, distinct from every other zone color
-@export var launch_pad_accent_color: Color = Color(0.3, 0.95, 0.5, 1) # vivid spring green marking the launch pad, distinct from every other zone color
+@export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks a chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
+@export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking a low-friction patch
+@export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking a high-friction patch
+@export var boost_accent_color: Color = Color(0.95, 0.9, 0.15, 1) # electric yellow-gold marking a boost pad, distinct from every other zone color
+@export var launch_pad_accent_color: Color = Color(0.3, 0.95, 0.5, 1) # vivid spring green marking a launch pad, distinct from every other zone color
+@export var flow_accent_color: Color = Color(0.55, 0.35, 0.85, 1) # soft violet marking level 2's sustained rolling-hills gauntlet - purely a "you're in the zone" callout, no gameplay effect of its own
+@export var ice_friction_scale: float = 0.06 # fraction of normal friction loss on ice - 0.06 means ~94% less grip than normal ground
+@export var mud_friction_scale: float = 6.5 # multiple of normal friction loss in mud
 
-const BHOP_SECTION_START_X: float = 7000.0 # must match the keyframe where the bhop bumps begin, below
-
-## A Trackmania-style boost pad. First tried on crest 2's flat top (right
-## before hill 2's descent into the roller bump) but a headless test caught
-## a bad interaction: the extra speed sent a tangent-tracking bot into a
-## bigger arc off that descent, and the resulting worse-than-usual landing
-## angle fed straight into _apply_landing's mismatch penalty, eating back
-## most of what the boost gave and making every simulated policy's overall
-## time WORSE, not better - the boost mechanic worked exactly as designed,
-## the placement just fed it straight into the one system that punishes
-## exactly the kind of extra momentum it hands out. Moved to the flat run
-## after the bhop section instead (still ahead of the actual finish
-## trigger, and past x=8700 there's no more terrain to launch off before
-## the flat finish straight begins) - a reward for clearing the course's
-## hardest stretch with no crest/landing to punish the extra speed. Unlike
-## ice/mud (continuous friction scaling, read every physics frame), this is
-## a one-shot edge-triggered kick applied once per crossing - see
-## Player.gd's boost_multiplier and _was_in_boost_zone.
-const BOOST_ZONE_START_X: float = 8700.0
-const BOOST_ZONE_END_X: float = 8900.0
-
-## Launch pad: an automatic pop off the ground along the floor normal (same
-## axis the manual jump uses), no button required - the terrain-triggered
-## counterpart to Player.gd's jump() rather than another velocity-magnitude
-## kick like boost. Placed on crest 1's flat top, with runway on both sides
-## (the flat top itself runs 2900-3300) so a rider crosses it already
-## committed to forward speed and lands back on more flat ground before the
-## real descent begins at 3300 - unlike the boost pad's rejected first
-## placement (see BOOST_ZONE above), the arc this adds lands on flat ground,
-## not into a slope that would feed extra speed straight into
-## _apply_landing's mismatch penalty. Verified with the same class of
-## tangent-tracking headless bot used to validate boost's placement.
-const LAUNCH_PAD_START_X: float = 3100.0
-const LAUNCH_PAD_END_X: float = 3200.0
-
-## Low-friction patch on valley 1's flat floor, right after hill 1's
-## downhill - Trackmania-style momentum test: much less grip means you
-## carry way more speed into the climb ahead if you managed it well
-## approaching the ice, and much less control to correct if you didn't.
-const ICE_ZONE_START_X: float = 1400.0
-const ICE_ZONE_END_X: float = 1900.0
-@export var ice_friction_scale: float = 0.06 # fraction of normal friction loss while on the ice - 0.06 means ~94% less grip than normal ground. Lowered from 0.15 after playtest feedback that the slide felt too weak to actually read as ice
-
-## Ice's opposite: a high-friction patch on valley 2's floor, right after
-## hill 2's downhill. Aggressively bleeds the speed you carried in - tests
-## the complementary skill of quickly re-accelerating/re-aiming into the
-## next climb instead of relying on momentum you can no longer coast on.
-const MUD_ZONE_START_X: float = 4600.0
-const MUD_ZONE_END_X: float = 5000.0
-@export var mud_friction_scale: float = 6.5 # multiple of normal friction loss while in the mud. Raised from 3.5 after playtest feedback that it didn't slow the player down enough to actually read as mud
+## Each entry: {type: "ice"/"mud"/"boost"/"launch"/"bhop"/"flow", start: float, end: float}.
+## Populated per-level in _configure_level(). Checked in this same order
+## wherever precedence could matter (only relevant if two zones overlap -
+## e.g. deliberately never done for ice/mud/boost/launch, but flow and bhop
+## sit back-to-back by design so a boundary pixel picks the first match).
+var zones: Array[Dictionary] = []
 
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
-var keyframes: Array[Vector2] = [
-	Vector2(-600, 600),  # runway behind spawn, so a hard reverse lean can't run off the world
-	Vector2(500, 600),   # end of flat start
-	Vector2(1400, 1050), # bottom of hill 1's downhill
-	Vector2(1900, 1050), # valley 1 floor
-	Vector2(2900, 600),  # crest 1
-	Vector2(3300, 600),  # flat top of crest 1
-	# Hill 2's descent gets one roller bump partway down - a taste of the
-	# chain mechanic mid-course, not just at the dedicated bhop section at
-	# the very end. Widened the overall run (was a straight 1000px drop,
-	# now 1400px) so inserting the bump doesn't force any segment steeper
-	# than a comfortable ~45deg peak.
-	Vector2(3700, 820),  # descent begins
-	Vector2(3900, 760),  # roller bump (gentle, ~17deg avg - meant to be easy to chain off)
-	Vector2(4500, 1150), # bottom of hill 2's downhill
-	Vector2(5000, 1150), # valley 2 floor
-	Vector2(5900, 700),  # crest 2
-	Vector2(6300, 700),  # flat top of crest 2
-	Vector2(7000, 950),  # gentle final descent (bottom of the two big hills)
-	# Bhop section: a rhythmic run of bumps, sized so a fast rider can chain
-	# several clean launch/land cycles in a row - the two big crests each
-	# only give one real jump per run, which isn't enough to actually feel
-	# the chain-streak system in action. ~100px rise over ~160px run keeps
-	# the peak slope around 43deg (safely under floor_max_angle's 55deg)
-	# while still being sharp enough for a fast rider to actually launch.
-	Vector2(7160, 850),
-	Vector2(7320, 950),
-	Vector2(7480, 850),
-	Vector2(7640, 950),
-	Vector2(7800, 850),
-	Vector2(7960, 950),
-	Vector2(8120, 850),
-	Vector2(8280, 950),
-	Vector2(8440, 820),  # one bigger bump to close the run out
-	Vector2(8620, 950),
-	Vector2(9400, 950),  # finish straight
-]
+## Populated per-level in _configure_level().
+var keyframes: Array[Vector2] = []
 
 var _top_points: PackedVector2Array = PackedVector2Array()
 
 
 func _ready() -> void:
+	_configure_level()
 	_build_ground()
+
+
+## Loads this instance's course layout. Keeping both levels' data in one
+## script (rather than a second copy of every height/tangent/zone method)
+## means a fix to the shared logic below can never accidentally apply to
+## only one level.
+func _configure_level() -> void:
+	if level == 2:
+		keyframes = _level_2_keyframes()
+		zones = _level_2_zones()
+	else:
+		keyframes = _level_1_keyframes()
+		zones = _level_1_zones()
+
+
+func _level_1_keyframes() -> Array[Vector2]:
+	return [
+		Vector2(-600, 600),  # runway behind spawn, so a hard reverse lean can't run off the world
+		Vector2(500, 600),   # end of flat start
+		Vector2(1400, 1050), # bottom of hill 1's downhill
+		Vector2(1900, 1050), # valley 1 floor
+		Vector2(2900, 600),  # crest 1
+		Vector2(3300, 600),  # flat top of crest 1
+		# Hill 2's descent gets one roller bump partway down - a taste of the
+		# chain mechanic mid-course, not just at the dedicated bhop section at
+		# the very end. Widened the overall run (was a straight 1000px drop,
+		# now 1400px) so inserting the bump doesn't force any segment steeper
+		# than a comfortable ~45deg peak.
+		Vector2(3700, 820),  # descent begins
+		Vector2(3900, 760),  # roller bump (gentle, ~17deg avg - meant to be easy to chain off)
+		Vector2(4500, 1150), # bottom of hill 2's downhill
+		Vector2(5000, 1150), # valley 2 floor
+		Vector2(5900, 700),  # crest 2
+		Vector2(6300, 700),  # flat top of crest 2
+		Vector2(7000, 950),  # gentle final descent (bottom of the two big hills)
+		# Bhop section: a rhythmic run of bumps, sized so a fast rider can chain
+		# several clean launch/land cycles in a row - the two big crests each
+		# only give one real jump per run, which isn't enough to actually feel
+		# the chain-streak system in action. ~100px rise over ~160px run keeps
+		# the peak slope around 43deg (safely under floor_max_angle's 55deg)
+		# while still being sharp enough for a fast rider to actually launch.
+		Vector2(7160, 850),
+		Vector2(7320, 950),
+		Vector2(7480, 850),
+		Vector2(7640, 950),
+		Vector2(7800, 850),
+		Vector2(7960, 950),
+		Vector2(8120, 850),
+		Vector2(8280, 950),
+		Vector2(8440, 820),  # one bigger bump to close the run out
+		Vector2(8620, 950),
+		Vector2(9400, 950),  # finish straight
+	]
+
+
+func _level_1_zones() -> Array[Dictionary]:
+	return [
+		# Low-friction patch on valley 1's flat floor, right after hill 1's
+		# downhill - Trackmania-style momentum test: much less grip means you
+		# carry way more speed into the climb ahead if you managed it well
+		# approaching the ice, and much less control to correct if you didn't.
+		{"type": "ice", "start": 1400.0, "end": 1900.0},
+		# Ice's opposite: a high-friction patch on valley 2's floor, right
+		# after hill 2's downhill. Aggressively bleeds the speed you carried
+		# in - tests the complementary skill of quickly re-accelerating/
+		# re-aiming into the next climb instead of relying on stored momentum.
+		{"type": "mud", "start": 4600.0, "end": 5000.0},
+		# Terrain-triggered counterpart to the manual jump: an automatic pop
+		# off the ground, no button required. Placed on crest 1's flat top
+		# (2900-3300) with runway on both sides so a rider crosses it already
+		# committed to forward speed and lands back on flat ground before the
+		# real descent begins at 3300.
+		{"type": "launch", "start": 3100.0, "end": 3200.0},
+		# A Trackmania-style boost pad. First tried on crest 2's flat top
+		# (right before hill 2's descent) but a headless test caught a bad
+		# interaction: the extra speed sent a tangent-tracking bot into a
+		# bigger arc off that descent, and the resulting worse landing angle
+		# fed straight into the landing-quality mismatch penalty, eating back
+		# most of the boost and making every simulated policy's time WORSE,
+		# not better. Moved to the flat run after the bhop section instead,
+		# where there's no more terrain to launch off before the finish.
+		{"type": "boost", "start": 8700.0, "end": 8900.0},
+		# The rhythmic bump run above - bounded at 8620 (where the bumps
+		# actually end and the flat finish straight begins) rather than left
+		# open-ended, so the finish straight doesn't cosmetically tag/color
+		# as "BHOP" once it's plain flat ground.
+		{"type": "bhop", "start": 7000.0, "end": 8620.0},
+	]
+
+
+## Level 2: roughly 2x level 1's length, built around one long uninterrupted
+## "flow" gauntlet (a run of gentle rolling hills with no flat valley floors
+## to break grounded contact) bracketed by two bhop-style bump corridors -
+## see the flow-zone comment in _level_2_zones() for the full reasoning.
+func _level_2_keyframes() -> Array[Vector2]:
+	return [
+		Vector2(-600, 600),  # runway behind spawn, same as level 1
+		Vector2(500, 600),   # end of flat start
+		Vector2(1600, 1150), # bottom of hill 1's downhill (dx=1100 dy=550, peak ~37deg)
+		Vector2(2100, 1150), # valley 1 floor - ice zone
+		Vector2(3300, 550),  # crest 1 (dx=1200 dy=-600, peak ~37deg)
+		Vector2(3600, 550),  # flat top of crest 1 - launch pad
+		Vector2(4300, 900),  # descent begins into flow corridor 1 (dx=700 dy=350, peak ~37deg)
+		# Flow corridor 1: a first taste of bump-chaining, comparable in
+		# density to level 1's whole bhop section but arriving much earlier -
+		# level 2 wants two of these instead of level 1's one, since it's
+		# meant to be a longer, harder ride overall.
+		Vector2(4470, 1010),
+		Vector2(4640, 900),
+		Vector2(4810, 1010),
+		Vector2(4980, 900),
+		Vector2(5150, 1010),
+		Vector2(5320, 900),
+		Vector2(5490, 1010),
+		Vector2(5660, 900),
+		Vector2(5830, 1010),
+		Vector2(6300, 1150), # settle down to valley 2 floor (dx=470 dy=140, gentle ~24deg)
+		Vector2(6800, 1150), # valley 2 floor - mud zone
+		Vector2(8100, 500),  # crest 2 (dx=1300 dy=-650, peak ~37deg)
+		Vector2(8500, 500),  # flat top of crest 2 - boost pad #1 (widened to 400px so the
+		                     # boost has real runway before the flow gauntlet's first dip,
+		                     # same lesson as boost's rejected level-1 placement)
+		# The flow gauntlet: six gentle rolling hills in a row (dx=700 dy=250,
+		# peak ~28deg - deliberately gentler than every other slope in either
+		# level), with no flat valley floor anywhere in between. Flow.gd's
+		# meter builds from sustained well-aimed grounded lean and fades the
+		# instant you go airborne or lose alignment - a long, continuous,
+		# evenly-paced curve with nothing to interrupt grounded contact is
+		# exactly the shape that lets a skilled rider hold perfect alignment
+		# long enough to actually max the meter out and feel it stay there,
+		# which the shorter, choppier hills+bumps of level 1 (or corridor 1
+		# and 2's rhythmic launches, which zero Flow's "airborne" clause
+		# every cycle) never gave enough room to do.
+		Vector2(9200, 750),
+		Vector2(9900, 500),
+		Vector2(10600, 750),
+		Vector2(11300, 500),
+		Vector2(12000, 750),
+		Vector2(12700, 500),
+		Vector2(13400, 750),
+		Vector2(14100, 500),
+		Vector2(14800, 750),
+		Vector2(15500, 500), # end of the flow gauntlet
+		# Flow corridor 2: bigger and harder than corridor 1 (dx=170 dy=120,
+		# peak ~47deg vs corridor 1's ~44deg), and longer (six full cycles
+		# instead of four) - the "way harder" payoff right after the calm of
+		# the flow gauntlet.
+		Vector2(15670, 620),
+		Vector2(15840, 500),
+		Vector2(16010, 620),
+		Vector2(16180, 500),
+		Vector2(16350, 620),
+		Vector2(16520, 500),
+		Vector2(16690, 620),
+		Vector2(16860, 500),
+		Vector2(17030, 620),
+		Vector2(17200, 500),
+		Vector2(17370, 620),
+		Vector2(17540, 500),
+		Vector2(17900, 700),  # settle down (dx=360 dy=200, peak ~38deg)
+		Vector2(18400, 750),  # nearly flat (dx=500 dy=50, peak ~8deg) - boost pad #2
+		Vector2(19300, 750),  # finish straight
+	]
+
+
+func _level_2_zones() -> Array[Dictionary]:
+	return [
+		{"type": "ice", "start": 1600.0, "end": 2100.0},
+		{"type": "launch", "start": 3400.0, "end": 3500.0},
+		{"type": "bhop", "start": 4300.0, "end": 5830.0},
+		{"type": "mud", "start": 6300.0, "end": 6800.0},
+		{"type": "boost", "start": 8150.0, "end": 8300.0},
+		{"type": "flow", "start": 8500.0, "end": 15500.0},
+		{"type": "bhop", "start": 15500.0, "end": 17540.0},
+		{"type": "boost", "start": 18500.0, "end": 18700.0},
+	]
 
 
 ## Ground surface height at world x, following the same curve used to build
@@ -171,43 +281,54 @@ func lowest_surface_y() -> float:
 	return max_y
 
 
+func _first_zone_of_type_at(x: float, type: String) -> bool:
+	for z in zones:
+		if z.type == type and x >= z.start and x <= z.end:
+			return true
+	return false
+
+
 ## Fraction (or multiple) of normal friction loss at world x - 1.0 on plain
 ## ground. Queried by Player.gd every physics frame, so keep it cheap.
 func friction_multiplier_at(x: float) -> float:
-	if x >= ICE_ZONE_START_X and x <= ICE_ZONE_END_X:
+	if _first_zone_of_type_at(x, "ice"):
 		return ice_friction_scale
-	if x >= MUD_ZONE_START_X and x <= MUD_ZONE_END_X:
+	if _first_zone_of_type_at(x, "mud"):
 		return mud_friction_scale
 	return 1.0
 
 
-## True while x is inside the boost pad - queried once per frame by Player.gd
+## True while x is inside a boost pad - queried once per frame by Player.gd
 ## to edge-detect entering the zone, same idea as an on_floor transition.
 func is_boost_zone_at(x: float) -> bool:
-	return x >= BOOST_ZONE_START_X and x <= BOOST_ZONE_END_X
+	return _first_zone_of_type_at(x, "boost")
 
 
-## True while x is inside the launch pad - same edge-detection pattern as
+## True while x is inside a launch pad - same edge-detection pattern as
 ## is_boost_zone_at above.
 func is_launch_pad_at(x: float) -> bool:
-	return x >= LAUNCH_PAD_START_X and x <= LAUNCH_PAD_END_X
+	return _first_zone_of_type_at(x, "launch")
 
 
 ## Short debug tag for whichever special zone x is in, "" on plain ground -
 ## a HUD readout for this during feel-testing, so a speed change is never
 ## ambiguous between "the terrain did that" and "your technique did that."
 func zone_name_at(x: float) -> String:
-	if x >= ICE_ZONE_START_X and x <= ICE_ZONE_END_X:
-		return "ICE"
-	if x >= MUD_ZONE_START_X and x <= MUD_ZONE_END_X:
-		return "MUD"
-	if x >= BOOST_ZONE_START_X and x <= BOOST_ZONE_END_X:
-		return "BOOST"
-	if x >= LAUNCH_PAD_START_X and x <= LAUNCH_PAD_END_X:
-		return "LAUNCH"
-	if x >= BHOP_SECTION_START_X:
-		return "BHOP"
+	for z in zones:
+		if x >= z.start and x <= z.end:
+			return String(z.type).to_upper()
 	return ""
+
+
+func _zone_color(type: String) -> Color:
+	match type:
+		"ice": return ice_accent_color
+		"mud": return mud_accent_color
+		"boost": return boost_accent_color
+		"launch": return launch_pad_accent_color
+		"bhop": return bhop_accent_color
+		"flow": return flow_accent_color
+		_: return ground_color
 
 
 func _build_ground() -> void:
@@ -244,7 +365,10 @@ func _build_ground() -> void:
 	# Visual is split into colored zones sharing sample points at every
 	# boundary (no seam/gap) - collision above stays a single unified
 	# polygon, completely unaffected by how the visual is carved up.
-	var boundaries: Array[float] = [start_x, ICE_ZONE_START_X, ICE_ZONE_END_X, MUD_ZONE_START_X, MUD_ZONE_END_X, LAUNCH_PAD_START_X, LAUNCH_PAD_END_X, BOOST_ZONE_START_X, BOOST_ZONE_END_X, BHOP_SECTION_START_X, end_x]
+	var boundaries: Array[float] = [start_x, end_x]
+	for z in zones:
+		boundaries.append(z.start)
+		boundaries.append(z.end)
 	boundaries.sort()
 	for i in range(boundaries.size() - 1):
 		var seg_start: float = boundaries[i]
@@ -253,16 +377,10 @@ func _build_ground() -> void:
 			continue
 		var mid: float = (seg_start + seg_end) / 2.0
 		var color: Color = ground_color
-		if mid >= ICE_ZONE_START_X and mid <= ICE_ZONE_END_X:
-			color = ice_accent_color
-		elif mid >= MUD_ZONE_START_X and mid <= MUD_ZONE_END_X:
-			color = mud_accent_color
-		elif mid >= LAUNCH_PAD_START_X and mid <= LAUNCH_PAD_END_X:
-			color = launch_pad_accent_color
-		elif mid >= BOOST_ZONE_START_X and mid <= BOOST_ZONE_END_X:
-			color = boost_accent_color
-		elif mid >= BHOP_SECTION_START_X:
-			color = bhop_accent_color
+		for z in zones:
+			if mid >= z.start and mid <= z.end:
+				color = _zone_color(z.type)
+				break
 		_add_visual_segment(body, seg_start, seg_end, color, bottom_y)
 
 

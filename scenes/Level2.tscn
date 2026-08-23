@@ -17,6 +17,7 @@ script = ExtResource("2_main")
 [node name="Terrain" type="Node2D" parent="."]
 unique_name_in_owner = true
 script = ExtResource("4_terrain")
+level = 2
 
 [node name="EndZone" type="Area2D" parent="."]
 unique_name_in_owner = true
@@ -167,4 +168,4 @@ offset_right = -20.0
 offset_bottom = 118.0
 grow_horizontal = 0
 theme_override_font_sizes/font_size = 18
-text = "Level 2"
+text = "Level 1"

@@ -15,6 +15,7 @@ extends Node2D
 @onready var chain_label: Label = %ChainLabel
 @onready var restart_button: Button = %RestartButton
 @onready var jump_button: Button = %JumpButton
+@onready var level_button: Button = %LevelButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 
 const PLAYER_GROUND_OFFSET: float = 40.0 # ball diameter (2x Player.ball_radius) - keeps the ball's bottom at the surface, matches Player's local origin-at-ground-contact convention
@@ -84,6 +85,11 @@ func _ready() -> void:
 	# touch-down rather than after release, so a jump tap registers as
 	# responsively as the joystick's own direct touch handling.
 	jump_button.button_down.connect(player.jump)
+	# Not a menu screen - just a HUD button, same category as Restart/Jump,
+	# that swaps to the other level's scene entirely (fresh Player/Terrain/
+	# Main, no shared state) rather than trying to reconfigure Terrain live.
+	level_button.text = "Level 2" if terrain.level == 1 else "Level 1"
+	level_button.pressed.connect(_on_level_button_pressed)
 	_update_timer_label()
 
 
@@ -192,6 +198,11 @@ func _on_end_zone_body_entered(body: Node) -> void:
 			_new_best_flash_timer = NEW_BEST_FLASH_DURATION
 		_update_timer_label()
 		print("Final time: %s (%.3f s)%s" % [_format_time(_elapsed), _elapsed, "  NEW BEST" if is_new_best else ""])
+
+
+func _on_level_button_pressed() -> void:
+	var target: String = "res://scenes/Level2.tscn" if terrain.level == 1 else "res://scenes/Main.tscn"
+	get_tree().change_scene_to_file(target)
 
 
 func _on_restart_pressed() -> void:
