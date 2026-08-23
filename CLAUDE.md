@@ -195,6 +195,17 @@ overrode player input) that a headless smoke test caught before commit.
   meter (HUD bar) builds from sustained well-aimed lean and raises your
   accel/ceiling while it's up, fading if technique lapses or you go
   airborne — so a good stretch of riding makes the next stretch faster too.
+  Which of the two tangent directions a landing/launch redirects onto is
+  chosen by the sign of `velocity.dot(tangent)` (along-slope direction), not
+  raw `velocity.x` (world-x) - they can disagree on a steep slope, since a
+  jump impulse is added along the floor *normal*, which has its own
+  x-component. Using world-x let a single ambiguous frame (barely-negative
+  world-x while still clearly traveling forward along the tangent) throw the
+  *entire* speed magnitude onto the wrong tangent, discovered via a headless
+  bot combining aimed lean with repeated jumping that got stuck oscillating
+  on hill 1's climb forever, at real speed (600-800 px/s), never actually
+  progressing - not a smooth penalty like every other system here, a full
+  momentum reversal from one frame's noise.
 - Trackmania/Quake-Defrag-inspired: launch quality is landing's symmetric
   counterpart — leaving the ground with velocity matching the slope you're
   leaving gives a small speed pop, leaving badly costs a little (mild
@@ -283,6 +294,20 @@ overrode player input) that a headless smoke test caught before commit.
   momentum dropped right before a crest or launch point can come back to
   bite you through the landing-quality system - a flat, launch-free runway
   is the safe kind of place to hand out free speed.
+- A launch pad (`Terrain.LAUNCH_PAD_START_X`/`END_X`, vivid spring green) is
+  the terrain-triggered counterpart to the manual jump: an automatic pop
+  along the floor normal (`Player.launch_pad_impulse`, same axis as
+  `jump_impulse`) the instant a grounded player crosses it - no button
+  needed. Same edge-triggered one-shot pattern as the boost pad
+  (`_was_in_launch_pad_zone` mirrors `_was_in_boost_zone`), but adds impulse
+  along the normal (a real launch) rather than scaling velocity's magnitude
+  (a speed kick), so it feeds the existing launch-quality/chain systems the
+  same way any other liftoff does. Placed on crest 1's flat top
+  (x=3100-3200, well inside the 2900-3300 flat run) rather than right at
+  either crest's edge, applying the lesson from the boost pad's placement
+  mistake above - verified with a headless bot that the resulting arc lands
+  back on flat/gently-curving ground (0.84 landing quality after ~1s of air)
+  instead of getting dumped into a slope and eaten by the landing penalty.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
