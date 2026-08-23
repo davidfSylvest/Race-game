@@ -81,6 +81,29 @@ offset_bottom = 126.0
 theme_override_font_sizes/font_size = 20
 text = "Speed: 0.0 px/s"
 
+[node name="FlowLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 132.0
+offset_right = 340.0
+offset_bottom = 152.0
+theme_override_font_sizes/font_size = 16
+text = "Flow"
+
+[node name="FlowBarBg" type="ColorRect" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 154.0
+offset_right = 224.0
+offset_bottom = 170.0
+color = Color(1, 1, 1, 0.15)
+
+[node name="FlowBarFill" type="ColorRect" parent="UI/FlowBarBg"]
+unique_name_in_owner = true
+offset_right = 0.0
+offset_bottom = 16.0
+color = Color(0.3, 0.85, 0.95, 0.9)
+
 [node name="Joystick" type="Control" parent="UI"]
 unique_name_in_owner = true
 anchors_preset = 0

@@ -10,6 +10,13 @@ extends CharacterBody2D
 ## the stick down-and-forward on a downhill or up-and-forward on an uphill
 ## is mechanically rewarded over just holding a flat push-forward - it's
 ## not "find the right force forward," it's "match the hill."
+##
+## Flow state: technique compounds instead of resetting between sections.
+## Landing a jump with velocity aligned to the new slope preserves/boosts
+## your speed; landing mismatched scrubs some off. Separately, sustained
+## well-aimed lean builds a Flow meter that raises your accel/ceiling while
+## it's up, so a good stretch of riding makes the next stretch easier to
+## ride well too - and losing technique lets it fade back down.
 
 @export_group("Acceleration")
 @export var max_accel_constant: float = 900.0 # px/s^2 at full lean, applied along the ground tangent
@@ -30,6 +37,19 @@ extends CharacterBody2D
 @export_group("Lean Alignment")
 @export var alignment_influence: float = 1.0 # 0 = only raw lean magnitude matters (old behavior); 1 = full angle-matching (see below)
 
+@export_group("Landing Quality")
+@export var landing_min_speed: float = 60.0 # below this, a touchdown is too gentle to count as a real landing (ignores settle-jitter)
+@export var landing_penalty_worst: float = 0.75 # speed multiplier on a completely mismatched landing
+@export var landing_bonus_best: float = 1.12 # speed multiplier on a perfectly-matched landing
+@export var landing_flow_swing: float = 0.25 # how much a landing's quality also swings the Flow meter, worst to best
+
+@export_group("Flow Meter")
+@export var flow_good_threshold: float = 0.6 # directional_magnitude at/above this, while grounded, counts as "good technique"
+@export var flow_gain_rate: float = 0.35 # per second, while sustaining good technique
+@export var flow_decay_rate: float = 0.25 # per second, otherwise (bad angle, no lean, or airborne)
+@export var flow_speed_bonus: float = 0.3 # +this fraction of top_speed_constant at flow = 1.0
+@export var flow_accel_bonus: float = 0.15 # +this fraction of max_accel_constant at flow = 1.0
+
 @export_group("Lean Visual")
 @export var max_tilt_degrees: float = 35.0 # visual tilt (forward/back) at full effective lean.x
 @export var max_crouch_scale: float = 0.35 # vertical squash/stretch at full effective lean.y - crouch tucking down, stand tall leaning up, so the angle-matching mechanic is visible, not just felt
@@ -39,6 +59,9 @@ extends CharacterBody2D
 @onready var visual: Node2D = $Visual
 
 var current_speed: float = 0.0
+var flow: float = 0.0 # 0..1, see "Flow Meter" above
+
+var _was_on_floor: bool = false
 
 
 func _ready() -> void:
@@ -59,12 +82,19 @@ func _physics_process(delta: float) -> void:
 		var normal: Vector2 = get_floor_normal()
 		tangent = Vector2(-normal.y, normal.x).normalized()
 
+	# Touched down this frame after being airborne last frame: a one-shot
+	# impact that rewards matching your velocity to the new slope instead
+	# of just always preserving speed for free.
+	if on_floor and not _was_on_floor and velocity.length() > landing_min_speed:
+		_apply_landing(tangent)
+
 	# Positive = heading in the downhill direction of the current slope,
 	# negative = heading into the uphill face. Zero on flat ground or airborne.
 	# This is about the SLOPE vs your travel direction - independent of how
 	# well you've angled the stick, which is a separate factor below.
 	var forward_slope: float = dir_sign * tangent.y if on_floor else 0.0
 
+	var directional_magnitude: float = 0.0
 	if dir_sign != 0.0:
 		# How well the stick's actual angle matches the ideal direction for
 		# this slope (the tangent, or its mirror if leaning/traveling
@@ -76,23 +106,32 @@ func _physics_process(delta: float) -> void:
 		var target_dir: Vector2 = tangent if dir_sign > 0.0 else -tangent
 		var aligned_magnitude: float = clamp(lean.dot(target_dir), 0.0, 1.0)
 		var raw_magnitude: float = clamp(lean.length(), 0.0, 1.0)
-		var directional_magnitude: float = lerp(raw_magnitude, aligned_magnitude, alignment_influence)
+		directional_magnitude = lerp(raw_magnitude, aligned_magnitude, alignment_influence)
 
 		if directional_magnitude > 0.0:
-			var accel_force: float = directional_magnitude * max_accel_constant
+			var flow_speed_multiplier: float = 1.0 + flow * flow_speed_bonus
+			var flow_accel_multiplier: float = 1.0 + flow * flow_accel_bonus
+			var accel_force: float = directional_magnitude * max_accel_constant * flow_accel_multiplier
 			var speed_ratio: float = pow(directional_magnitude, speed_exponent)
 			var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
-			var max_speed_this_frame: float = speed_ratio * top_speed_constant * slope_multiplier
+			var max_speed_this_frame: float = speed_ratio * top_speed_constant * slope_multiplier * flow_speed_multiplier
 
-			# Accelerate toward the ceiling this lean+slope unlocks, but never
-			# yank existing momentum down if it's already above that ceiling -
-			# velocity only bleeds off via friction_decay, never an input clamp.
+			# Accelerate toward the ceiling this lean+slope+flow unlocks, but
+			# never yank existing momentum down if it's already above that
+			# ceiling - velocity only bleeds off via friction_decay, never an
+			# input clamp.
 			var ground_speed: float = velocity.dot(tangent)
 			if absf(ground_speed) < max_speed_this_frame:
 				velocity += tangent * dir_sign * accel_force * delta
 				var new_ground_speed: float = velocity.dot(tangent)
 				var clamped: float = clamp(new_ground_speed, -max_speed_this_frame, max_speed_this_frame)
 				velocity += tangent * (clamped - new_ground_speed)
+
+	# Flow builds from sustained good technique on the ground, and fades
+	# otherwise (bad angle, no lean, or mid-air) - it's a state you have to
+	# keep earning, not a one-time unlock.
+	var good_technique: bool = on_floor and directional_magnitude >= flow_good_threshold
+	flow = clamp(flow + (flow_gain_rate if good_technique else -flow_decay_rate) * delta, 0.0, 1.0)
 
 	# Gravity always pulls straight down (needed for airborne falls and floor
 	# detection). On top of that, an explicit tangential assist makes the
@@ -107,11 +146,35 @@ func _physics_process(delta: float) -> void:
 	var ground_speed_now: float = velocity.dot(tangent)
 	velocity += tangent * (ground_speed_now * (friction_decay - 1.0))
 
+	_was_on_floor = on_floor
+
 	move_and_slide()
 
 	current_speed = velocity.length()
 
 	_update_visual(lean)
+
+
+## One-shot speed adjustment at the instant of touchdown: how well does the
+## velocity direction (built up over the whole jump) match the tangent of
+## the surface you're landing on? Dead-on gives a small bonus, way off
+## scrubs some speed - never a hard reset, just a legible skill payoff for
+## "landed it clean" vs "came in sideways."
+##
+## The result is redirected onto the tangent rather than just scaling the
+## original (possibly very off-axis) vector in place - otherwise a steep
+## mismatched landing gets hit twice: once by this penalty, and a second
+## time when move_and_slide's floor collision separately absorbs whatever
+## into-the-ground component the penalty didn't touch, compounding into an
+## unpredictable near-total loss instead of the clean tunable multiplier
+## below. Redirecting first means the multiplier is the whole story.
+func _apply_landing(tangent: Vector2) -> void:
+	var pre_speed: float = velocity.length()
+	var travel_sign: float = signf(velocity.x) if absf(velocity.x) > 0.001 else 1.0
+	var landing_target: Vector2 = tangent if travel_sign >= 0.0 else -tangent
+	var landing_quality: float = clamp(velocity.normalized().dot(landing_target), 0.0, 1.0)
+	velocity = landing_target * pre_speed * lerp(landing_penalty_worst, landing_bonus_best, landing_quality)
+	flow = clamp(flow + lerp(-landing_flow_swing, landing_flow_swing, landing_quality), 0.0, 1.0)
 
 
 func _get_lean_vector() -> Vector2:
@@ -125,6 +188,8 @@ func reset(spawn_position: Vector2) -> void:
 	global_position = spawn_position
 	velocity = Vector2.ZERO
 	current_speed = 0.0
+	flow = 0.0
+	_was_on_floor = false
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0

@@ -10,6 +10,8 @@ extends Node2D
 @onready var timer_label: Label = %TimerLabel
 @onready var best_label: Label = %BestLabel
 @onready var speed_label: Label = %SpeedLabel
+@onready var flow_bar_bg: Control = %FlowBarBg
+@onready var flow_bar_fill: Control = %FlowBarFill
 @onready var restart_button: Button = %RestartButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 
@@ -52,6 +54,7 @@ func _process(delta: float) -> void:
 		_update_timer_label()
 
 	speed_label.text = "Speed: %.1f px/s" % player.current_speed
+	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
 
 	_update_camera()
 

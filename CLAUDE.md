@@ -115,6 +115,14 @@ overrode player input) that a headless smoke test caught before commit.
 - There is no fall/wipeout mechanic — leaning hard, in any direction, for
   any length of time, never cuts speed or locks out input. The only
   consequence of a bad lean is the smooth effectiveness penalty above.
+- Flow state: technique compounds instead of resetting between sections.
+  Landing a jump redirects velocity onto the new slope's tangent, scaled by
+  how well your airborne velocity matched it — land clean, keep/gain speed;
+  land sideways, lose some, but always a clean tunable multiplier, never a
+  double-penalty from also colliding with the floor. Separately, a Flow
+  meter (HUD bar) builds from sustained well-aimed lean and raises your
+  accel/ceiling while it's up, fading if technique lapses or you go
+  airborne — so a good stretch of riding makes the next stretch faster too.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
