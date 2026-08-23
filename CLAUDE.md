@@ -103,7 +103,10 @@ overrode player input) that a headless smoke test caught before commit.
 - `scripts/Main.gd` — HUD readouts (timer, speed, best time, Flow bar,
   Chain text), restart button wiring, JUMP button wiring (`button_down`,
   not `.pressed`, so a tap registers on touch-down like the joystick does),
-  end-zone signal handling, camera zoom/lookahead/shake/zoom-kick.
+  end-zone signal handling, camera zoom/lookahead/shake/zoom-kick, and a
+  gold "NEW BEST" flash on the best-time label (a genuine new best was
+  previously only ever printed to the console, invisible on the Android
+  build the user actually plays on).
 - The course has one mid-course roller bump (partway down hill 2's descent)
   plus a dedicated bhop section (small rhythmic bumps) right before the
   finish, so the chain/flow/landing/launch systems have places to actually

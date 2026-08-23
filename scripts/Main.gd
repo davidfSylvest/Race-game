@@ -46,6 +46,15 @@ const CAMERA_SHAKE_DECAY_PX_PER_SEC: float = 45.0 # how fast the shake amplitude
 const MAX_LAUNCH_ZOOM_KICK: float = 0.05 # zoom units subtracted (zoomed further out) on a perfectly-matched (quality 1) launch
 const CAMERA_ZOOM_KICK_DECAY_PER_SEC: float = 0.18 # how fast the kick eases back out
 
+# A new best time already printed to the console ("NEW BEST"), which is
+# useless on the user's actual platform - there's no console visible on the
+# Android build, so the only in-game signal was the Best label's number
+# quietly matching the Timer label, easy to miss entirely. Flashes the label
+# gold with an explicit "NEW BEST" callout for a few seconds, same one-shot
+# decay pattern as the landing squash/launch stretch/camera shake above.
+const NEW_BEST_FLASH_DURATION: float = 2.0
+const NEW_BEST_FLASH_COLOR: Color = Color(1.0, 0.85, 0.2, 1)
+
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
@@ -57,6 +66,7 @@ var _last_seen_landing_event: int = 0
 var _camera_zoom_kick: float = 0.0
 var _last_seen_launch_event: int = 0
 var _camera_zoom_smoothed: float = CAMERA_BASE_ZOOM # eased speed-based zoom, kept separate from camera.zoom itself so the kick (applied only to the final displayed value) never feeds back into next frame's ease source
+var _new_best_flash_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -100,6 +110,7 @@ func _process(delta: float) -> void:
 	speed_label.text = "Speed: %.1f px/s%s" % [player.current_speed, ("  [%s]" % zone) if zone != "" else ""]
 	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
 	chain_label.text = _chain_text()
+	_update_best_flash(delta)
 
 	if player.landing_event_id != _last_seen_landing_event:
 		_last_seen_landing_event = player.landing_event_id
@@ -146,6 +157,23 @@ func _update_timer_label() -> void:
 	best_label.text = ("Best: %s" % _format_time(_best_time)) if _best_time >= 0.0 else ""
 
 
+## Overrides the best-label text/color for a few seconds right after a new
+## best, then hands display back to _update_timer_label()'s normal "Best:
+## ..." text once the flash decays to 0 - runs every frame regardless of
+## _timer_running/_finished, since the flash needs to keep animating after
+## the run has already ended (there's no results screen to interrupt it).
+func _update_best_flash(delta: float) -> void:
+	if _new_best_flash_timer <= 0.0:
+		return
+	_new_best_flash_timer = max(_new_best_flash_timer - delta, 0.0)
+	if _new_best_flash_timer <= 0.0:
+		best_label.modulate = Color.WHITE
+		_update_timer_label()
+		return
+	best_label.text = "NEW BEST: %s !" % _format_time(_best_time)
+	best_label.modulate = NEW_BEST_FLASH_COLOR.lerp(Color.WHITE, 1.0 - _new_best_flash_timer / NEW_BEST_FLASH_DURATION)
+
+
 func _format_time(t: float) -> String:
 	var total_ms: int = int(round(t * 1000.0))
 	var minutes: int = total_ms / 60000
@@ -161,6 +189,7 @@ func _on_end_zone_body_entered(body: Node) -> void:
 		var is_new_best: bool = _best_time < 0.0 or _elapsed < _best_time
 		if is_new_best:
 			_best_time = _elapsed
+			_new_best_flash_timer = NEW_BEST_FLASH_DURATION
 		_update_timer_label()
 		print("Final time: %s (%.3f s)%s" % [_format_time(_elapsed), _elapsed, "  NEW BEST" if is_new_best else ""])
 
@@ -174,6 +203,8 @@ func _on_restart_pressed() -> void:
 	_camera_zoom_kick = 0.0
 	_camera_zoom_smoothed = CAMERA_BASE_ZOOM
 	_last_seen_launch_event = player.launch_event_id
+	_new_best_flash_timer = 0.0
+	best_label.modulate = Color.WHITE
 	_elapsed = 0.0
 	_timer_running = false
 	_finished = false
