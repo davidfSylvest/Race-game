@@ -79,6 +79,10 @@ extends CharacterBody2D
 @export var flow_speed_bonus: float = 0.3 # +this fraction of top_speed_constant at flow = 1.0
 @export var flow_accel_bonus: float = 0.15 # +this fraction of max_accel_constant at flow = 1.0
 
+@export_group("Floor Snapping")
+@export var floor_snap_length_wide: float = 40.0 # px, used everywhere except bhop/launch-pad zones - CharacterBody2D silently reclassifies any separation smaller than this as "still grounded," which fixed a real bug: on an ordinary smooth hill, a fast ball genuinely leaves the surface for a few frames at a curve transition (a real "cresting" ballistic effect, confirmed via headless trace - up to ~41px of separation on hill 1's flat-to-downhill transition, 0.68s of real air time), and the old single value (5, tuned only for bhop bumps) was far too small to bridge that, so the ball visibly bounced down every ordinary hill instead of rolling
+@export var floor_snap_length_tight: float = 5.0 # px, used only inside bhop/launch-pad zones (see Terrain.wants_tight_floor_snap_at) - those bumps are deliberately small and *should* produce a real separate landing each time so the chain/flow systems have something to trigger on; the wide value above is large enough to glue right over them and flatten a 5-bump chain into a single landing, confirmed via headless test (5 landing events at snap=5 vs 1 at snap=40 through the same bhop section) - a single global snap length can't satisfy both an ordinary hill's much larger real separation and a bhop bump's intentionally small one at the same time, so the value now switches per zone instead
+
 @export_group("Ball Visual")
 @export var ball_radius: float = 20.0 # px, matches the Visual/CollisionShape2D circle in Main.tscn - converts ground speed into a physically-plausible rolling rotation rate (rolling without slipping: angular velocity = velocity.x / radius), replacing the old humanoid's lean-angle tilt now that there's no torso to tilt
 @export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
@@ -115,10 +119,13 @@ var _roll_angle: float = 0.0 # accumulated visual spin, radians - see ball_radiu
 
 func _ready() -> void:
 	floor_max_angle = deg_to_rad(55.0)
-	floor_snap_length = 5.0
+	floor_snap_length = floor_snap_length_wide
 
 
 func _physics_process(delta: float) -> void:
+	if terrain and terrain.has_method("wants_tight_floor_snap_at"):
+		floor_snap_length = floor_snap_length_tight if terrain.wants_tight_floor_snap_at(position.x) else floor_snap_length_wide
+
 	var lean: Vector2 = _get_lean_vector()
 	var dir_sign: float = signf(lean.x) if absf(lean.x) > 0.001 else 0.0
 

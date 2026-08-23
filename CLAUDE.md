@@ -163,7 +163,23 @@ overrode player input) that a headless smoke test caught before commit.
   end-zone signal handling, camera zoom/lookahead/shake/zoom-kick, and a
   gold "NEW BEST" flash on the best-time label (a genuine new best was
   previously only ever printed to the console, invisible on the Android
-  build the user actually plays on).
+  build the user actually plays on). `LevelButton` also uses `button_down`
+  now, for the same reason - the user reported being unable to select Level
+  2 on their real device even though the underlying `change_scene_to_file`
+  mechanism tested fine headlessly (simulating a direct signal emit). The
+  default `.pressed` signal only fires if the finger lifts while still over
+  the button, so a quick real-device tap with any tiny drag can silently
+  swallow it - much more likely on a small top-corner button tapped quickly
+  mid-decision than on Restart, which players tap slowly and deliberately
+  after a run. Also enlarged the button (120x44 -> 160x54) as a second,
+  independent improvement to the same real-device-only complaint - a bigger
+  target is harder to miss regardless of which theory about the tap was
+  right. Couldn't fully confirm the original root cause on-device (no
+  `export_presets.cfg` in the repo to check whether a local Android export
+  preset might also be excluding `Level2.tscn` - that's a per-user export
+  setting, not something this checkout can verify), so if the button still
+  doesn't respond after this fix, check that the Android export preset's
+  resource filter actually includes `scenes/Level2.tscn`.
 - The course has one mid-course roller bump (partway down hill 2's descent)
   plus a dedicated bhop section (small rhythmic bumps) right before the
   finish, so the chain/flow/landing/launch systems have places to actually
@@ -178,6 +194,41 @@ overrode player input) that a headless smoke test caught before commit.
   re-aligns its lean to the tangent every frame will actively hug bumps
   instead of separating from them, so test with a fixed lean / momentum
   coast approach instead, closer to how a real player at speed behaves.
+- `floor_snap_length` is no longer one global value - it's now
+  `floor_snap_length_wide` (40) everywhere, dropping to
+  `floor_snap_length_tight` (5, the original global value) only inside a
+  `bhop` or `launch` zone (`Terrain.wants_tight_floor_snap_at()`, checked
+  and applied at the top of `Player._physics_process()` every frame). Found
+  after the user reported the ball visibly bouncing down ordinary hills
+  instead of rolling. Headless tracing confirmed it was real ballistic
+  physics, not a terrain-smoothness bug: a fast ball genuinely leaves the
+  surface for a few frames at the convex curve transition where a flat top
+  bends into a steep descent (up to ~41px of separation and 0.68s of real
+  air time measured on hill 1's crest), because gravity can't pull it back
+  onto the surface fast enough to match the curve's bend rate at that
+  speed - a real "cresting" effect, not an artifact (ruling out terrain
+  `sample_spacing` as a cause confirmed this: 8 vs 24 gave identical bounce
+  counts). The single old global value (5) was tuned specifically for the
+  bhop section's much smaller bumps and was far too small to bridge that
+  separation, so it kept re-detecting "on floor" as false and dropping the
+  ball into a full ballistic arc down every ordinary hill - a genuine
+  regression from that earlier bhop-tuning pass, invisible until a full-hill
+  headless trace was actually run (the bhop section itself was always
+  tested and looked fine in isolation). Simply raising the global value to
+  40 fixes ordinary hills perfectly (confirmed: on_floor stays continuously
+  true through hill 1's whole descent, the only transition left is the
+  test's own artificial initial drop) but breaks the bhop section outright
+  - it glues right over those smaller, deliberate bumps too, collapsing a
+  verified 5-landing-event chain down to 1. A per-zone value fixes both:
+  re-verified hill 1's descent smooth AND the bhop section back to its
+  original 5 landing events / 11 on_floor transitions, byte-for-byte the
+  pre-regression numbers. Re-ran the full 4-policy benchmark on both
+  Main.tscn and Level2.tscn afterward per the working-style rule below -
+  no regressions, and every finishing policy actually got faster than the
+  previously-documented numbers (e.g. level 1 perfect ~16.6s vs ~18s
+  before), consistent with the old bouncing having been quietly costing
+  speed through the landing-quality mismatch penalty on every one of those
+  unwanted bounces.
 
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)

@@ -310,6 +310,15 @@ func is_launch_pad_at(x: float) -> bool:
 	return _first_zone_of_type_at(x, "launch")
 
 
+## True inside a bhop or launch-pad zone, where the whole point is that small
+## bumps produce a real, separate landing/launch each time - Player.gd uses
+## this to shrink floor_snap_length there so those deliberate bumps don't get
+## glued flat by the larger snap needed elsewhere (see floor_snap_length_wide
+## in Player.gd for why plain hills need a much larger value).
+func wants_tight_floor_snap_at(x: float) -> bool:
+	return _first_zone_of_type_at(x, "bhop") or _first_zone_of_type_at(x, "launch")
+
+
 ## Short debug tag for whichever special zone x is in, "" on plain ground -
 ## a HUD readout for this during feel-testing, so a speed change is never
 ## ambiguous between "the terrain did that" and "your technique did that."

@@ -89,7 +89,14 @@ func _ready() -> void:
 	# that swaps to the other level's scene entirely (fresh Player/Terrain/
 	# Main, no shared state) rather than trying to reconfigure Terrain live.
 	level_button.text = "Level 2" if terrain.level == 1 else "Level 1"
-	level_button.pressed.connect(_on_level_button_pressed)
+	# Switched from the default .pressed click signal to button_down for the
+	# same reason as JumpButton above: .pressed only fires if the finger lifts
+	# while still over the button, so any tiny drag during a quick real-device
+	# tap (much more likely on a small top-corner button than on Restart,
+	# which players tap slowly and deliberately after finishing a run) can
+	# silently swallow the tap. button_down fires the instant touch begins,
+	# same as Jump and the joystick.
+	level_button.button_down.connect(_on_level_button_pressed)
 	_update_timer_label()
 
 
