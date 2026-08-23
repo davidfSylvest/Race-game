@@ -43,6 +43,14 @@ extends CharacterBody2D
 @export var landing_bonus_best: float = 1.12 # speed multiplier on a perfectly-matched landing
 @export var landing_flow_swing: float = 0.25 # how much a landing's quality also swings the Flow meter, worst to best
 
+@export_group("Launch Quality")
+@export var launch_min_speed: float = 80.0 # below this, leaving the ground is too gentle to count as a real launch
+@export var launch_penalty_worst: float = 0.92 # speed multiplier leaving the ground badly off the slope's tangent - mild, launches aren't really "mistakes" the way bad landings are
+@export var launch_bonus_best: float = 1.08 # speed multiplier popping cleanly off a crest along the tangent - a small reward for carrying speed smoothly into a jump instead of stumbling off it
+
+@export_group("Air Control")
+@export var air_control_accel: float = 260.0 # px/s^2 extra push along your current trajectory while airborne, when lean points that way (Quake/Trackmania-style "aim where you're going" air control - not free, has to be earned by pointing the stick right)
+
 @export_group("Flow Meter")
 @export var flow_good_threshold: float = 0.6 # directional_magnitude at/above this, while grounded, counts as "good technique"
 @export var flow_gain_rate: float = 0.35 # per second, while sustaining good technique
@@ -62,6 +70,7 @@ var current_speed: float = 0.0
 var flow: float = 0.0 # 0..1, see "Flow Meter" above
 
 var _was_on_floor: bool = false
+var _last_grounded_tangent: Vector2 = Vector2.RIGHT
 
 
 func _ready() -> void:
@@ -87,6 +96,17 @@ func _physics_process(delta: float) -> void:
 	# of just always preserving speed for free.
 	if on_floor and not _was_on_floor and velocity.length() > landing_min_speed:
 		_apply_landing(tangent)
+
+	# Left the ground this frame after being grounded last frame: the
+	# takeoff counterpart to landing - popping off a crest cleanly (velocity
+	# still matching the slope you're leaving) gives a small speed reward,
+	# leaving badly-angled costs a little. Uses the tangent from the last
+	# grounded frame since there's no floor to read from once airborne.
+	if not on_floor and _was_on_floor and velocity.length() > launch_min_speed:
+		_apply_launch(_last_grounded_tangent)
+
+	if on_floor:
+		_last_grounded_tangent = tangent
 
 	# Positive = heading in the downhill direction of the current slope,
 	# negative = heading into the uphill face. Zero on flat ground or airborne.
@@ -126,6 +146,17 @@ func _physics_process(delta: float) -> void:
 				var new_ground_speed: float = velocity.dot(tangent)
 				var clamped: float = clamp(new_ground_speed, -max_speed_this_frame, max_speed_this_frame)
 				velocity += tangent * (clamped - new_ground_speed)
+
+	# Air control: while airborne, pointing the stick along your current
+	# trajectory (not just world-horizontal) adds a little extra speed -
+	# an air-strafe-style reward for aiming where you're already going
+	# instead of just coasting through the jump passively. Requires an
+	# actual lean; doing nothing mid-air gets nothing.
+	if not on_floor and velocity.length() > 10.0:
+		var vel_dir: Vector2 = velocity.normalized()
+		var air_alignment: float = clamp(lean.dot(vel_dir), 0.0, 1.0)
+		if air_alignment > 0.0:
+			velocity += vel_dir * air_alignment * air_control_accel * delta
 
 	# Flow builds from sustained good technique on the ground, and fades
 	# otherwise (bad angle, no lean, or mid-air) - it's a state you have to
@@ -177,6 +208,20 @@ func _apply_landing(tangent: Vector2) -> void:
 	flow = clamp(flow + lerp(-landing_flow_swing, landing_flow_swing, landing_quality), 0.0, 1.0)
 
 
+## One-shot speed adjustment at the instant of leaving the ground: the
+## takeoff counterpart to _apply_landing. Unlike landing, this only scales
+## the velocity's magnitude rather than redirecting it - the whole point of
+## a crest launch is the arc the terrain already gave it (up and away from
+## the slope), and flattening that onto the tangent would kill the jump.
+## Safe to just scale here since there's no floor left to collide with the
+## same frame (that's what "no longer on_floor" means).
+func _apply_launch(tangent: Vector2) -> void:
+	var travel_sign: float = signf(velocity.x) if absf(velocity.x) > 0.001 else 1.0
+	var launch_target: Vector2 = tangent if travel_sign >= 0.0 else -tangent
+	var launch_quality: float = clamp(velocity.normalized().dot(launch_target), 0.0, 1.0)
+	velocity *= lerp(launch_penalty_worst, launch_bonus_best, launch_quality)
+
+
 func _get_lean_vector() -> Vector2:
 	if joystick and joystick.has_method("get_vector"):
 		return joystick.get_vector()
@@ -190,6 +235,7 @@ func reset(spawn_position: Vector2) -> void:
 	current_speed = 0.0
 	flow = 0.0
 	_was_on_floor = false
+	_last_grounded_tangent = Vector2.RIGHT
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0

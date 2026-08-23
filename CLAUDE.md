@@ -123,6 +123,14 @@ overrode player input) that a headless smoke test caught before commit.
   meter (HUD bar) builds from sustained well-aimed lean and raises your
   accel/ceiling while it's up, fading if technique lapses or you go
   airborne — so a good stretch of riding makes the next stretch faster too.
+- Trackmania/Quake-Defrag-inspired: launch quality is landing's symmetric
+  counterpart — leaving the ground with velocity matching the slope you're
+  leaving gives a small speed pop, leaving badly costs a little (mild
+  either way, a launch isn't really a "mistake" the way a bad landing is).
+  Separately, air control lets you build extra speed mid-air by pointing
+  the stick along your current trajectory (not world-horizontal) - an
+  air-strafe-style reward for aiming where you're already going instead of
+  coasting passively through a jump.
 - Every constant governing the above is an `@export` specifically so it can
   be retuned from playtesting feedback without touching the logic.
 
