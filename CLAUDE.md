@@ -16,13 +16,20 @@ unless asked for that specific thing again.
 Same story with visuals: the user explicitly asked to "greatly improve the
 textures, shading, lighting, and models," so the old "gray-box art only" line
 above is gone and a real lighting/shading pass now exists - see "Visual
-Presentation" under Architecture. That's still scoped to what was asked
-(procedural shading/lighting/depth cues, not an art-asset pipeline - no
-external image files were added, see that section for why), not a general
-license to keep adding visual scope. Everything else in this file's
-minimalism stance (no UI/menu/persistence scope creep, headless-only
-validation, don't add DO NOT BUILD items unasked) still applies exactly as
-before.
+Presentation" under Architecture. A follow-up request went further, asking
+for the visual code itself to be restructured into "separate, swappable
+systems" (a silhouette-based terrain renderer, a parallax background, a
+speed-trail effect, a camera rig) plus a speed-scaled camera streak/
+chromatic shader and a time-of-day/biome palette system - see the same
+"Visual Presentation" section for what that split into (`TerrainRenderer.gd`,
+`TrailEffect.gd`, `CameraRig.gd`, `TimeOfDayPalette.gd`/`PaletteController.gd`).
+Both visual requests are still scoped to what was asked (procedural
+shading/lighting/depth cues and their modular organization, not an
+art-asset pipeline - no external image files were added, see that section
+for why), not a general license to keep adding visual scope. Everything
+else in this file's minimalism stance (no UI/menu/persistence scope creep,
+headless-only validation, don't add DO NOT BUILD items unasked) still
+applies exactly as before.
 
 ## Godot version: 4.7.1 — always, no exceptions
 
@@ -251,16 +258,31 @@ runtime the same way Terrain.gd already builds its ground polygons, so both
 levels get it for free with zero duplication and there's nothing for the
 wrong-Godot-version risk at the top of this file to corrupt.
 
-- **Terrain shading** (`Terrain._add_visual_segment()`): each ground
-  Polygon2D now bakes per-vertex colors instead of one flat fill - the top
-  (visible) curve vertices get `color.lightened(top_edge_lighten)`, the
-  buried bottom-edge vertices get `color.darkened(bottom_edge_darken)`,
-  faking a "lit from directly above" gradient on every zone color
-  automatically with zero shader cost (`Polygon2D.vertex_colors`, baked
-  once at build time, not a per-frame cost). `_build_ground()` also lays a
-  single continuous `Line2D` along the whole course's `_top_points` as a
-  warm, translucent rim highlight - one node for the entire course rather
-  than per-segment, so there's no seam at zone-color boundaries.
+- **Terrain rendering is a separate file from terrain physics.** A later
+  request explicitly asked for "separate, swappable systems... not one
+  monolithic script," so `Terrain.gd`'s visual-building code (the per-vertex
+  gradient + rim highlight described below) was pulled out into
+  `scripts/TerrainRenderer.gd`, instantiated as a child by `Terrain._ready()`
+  right after `_build_ground()`. The split preserves the "visual can never
+  desync from collision" guarantee rather than relaxing it:
+  `TerrainRenderer.build(terrain)` reads `terrain.get_top_points()` /
+  `terrain.get_bottom_y()` directly - the EXACT arrays/values the collision
+  polygon was built from - rather than resampling `height_at()` itself.
+  `Terrain.gd` now owns physics/collision and course-layout data only
+  (keyframes, zones, `height_at`/`tangent_at`/friction/zone-query methods);
+  `TerrainRenderer.gd` owns every fill color (`ground_color`, the six zone
+  accent colors, `_zone_color()`) and the shading itself: each ground
+  Polygon2D bakes per-vertex colors instead of one flat fill - top curve
+  vertices get `color.lightened(top_edge_lighten)`, buried bottom-edge
+  vertices get `color.darkened(bottom_edge_darken)`, faking a "lit from
+  directly above" gradient on every zone color automatically with zero
+  shader cost (`Polygon2D.vertex_colors`, baked once at build time). A
+  single continuous `Line2D` along the whole course's top points adds a
+  warm, translucent rim highlight - one node for the entire course, so
+  there's no seam at zone-color boundaries. `TerrainRenderer.refresh_colors()`
+  tears down and rebuilds just the visual fill from whatever its color
+  exports currently are, without touching Terrain's collision at all - see
+  the PaletteController bullet below for who calls it and why.
 - **Ball shading** (`Player._make_shading()`/`_make_shadow()`/`_make_glow()`,
   all built in `_ready()`, not placed in either .tscn): three additions,
   each a plain sibling of the existing `Visual` node so none of them
@@ -307,16 +329,121 @@ wrong-Godot-version risk at the top of this file to corrupt.
   unrelated reasons) is untouched - confirmed headlessly by walking
   `Main`'s child list and checking `UI` sits in its own layer, not under the
   modulated world-space branch.
+- **Speed trail** (`scripts/TrailEffect.gd`, a script on a standalone
+  `Line2D` instantiated by `Player._make_trail()`): in a silhouette-based
+  game with no sprite animation, speed has no other visible "juice" signal,
+  so this is deliberately the loudest visual in the game. `top_level = true`
+  lets it live as a child of Player (freed automatically with the ball)
+  while its `points` stay in WORLD space, immune to Player's own
+  position/rotation. Length is a free side effect of speed itself: it just
+  samples the ball's last `history_length` physics-frame positions every
+  frame via `update(world_position, speed)`, and a faster ball naturally
+  covers more world distance between samples - no separate "how long should
+  this be" logic exists. Width and alpha are the only things actively
+  scaled with speed (`min_width`/`max_width`, `min_alpha`/`max_alpha`
+  between `min_speed_for_trail` and `speed_for_max_effect`). `clear()` is
+  called from `Player.reset()` so a restart doesn't draw a stale streak
+  connecting the old run's last position to the new spawn point. Verified
+  headlessly: alpha/width sit at their minimums at rest and ramp toward
+  their maximums at speed, and the sampled points really do span a
+  meaningfully longer world distance at ~850px/s than at rest.
+- **Camera is its own script, attached at runtime.** The zoom/lookahead/
+  landing-shake/launch-zoom-kick logic that used to live inline in
+  `Main._process()` is now `scripts/CameraRig.gd`, attached to the
+  *existing* `Camera2D` node (a child of Player, already placed in both
+  `.tscn` files) via `camera.set_script(preload(...)); camera.init(player)`
+  in `Main._ready()` - not a new node, so neither scene file needed editing.
+  Everything about camera feel is now fully self-driven: `init(player)`
+  stores the reference once, and CameraRig's own `_process()` polls
+  `player.landing_event_id`/`launch_event_id`/`current_speed`/`velocity`
+  every frame - Main.gd's only remaining contact with the camera is that one
+  `init()` call and `camera.reset_camera()` on restart. **Real bug caught
+  here, worth remembering**: `set_script()` on an already-`_ready()` node
+  does NOT retroactively enable `_process()` - Godot only auto-turns on
+  per-frame processing once, during the ORIGINAL script's
+  `NOTIFICATION_READY`, before this script ever existed on the node.
+  Without an explicit `set_process(true)` inside `init()`, CameraRig looked
+  completely wired up (script attached, fields set) but silently never
+  ticked - caught headlessly by watching zoom/position/streak-intensity stay
+  frozen at their init() values while `player.current_speed` visibly climbed
+  in the same test.
+  - **Speed-scaled streak/chromatic overlay** (`shaders/streak_blur.gdshader`,
+    a `ColorRect` + `ShaderMaterial` built by `CameraRig._build_streak_overlay()`):
+    reads `SCREEN_TEXTURE` and samples it several times along the player's
+    current travel direction with decreasing weight (a directional streak
+    blur), plus a small per-channel offset along that same direction for a
+    touch of chromatic aberration - both scale with `intensity`, which
+    CameraRig sets from `current_speed / streak_speed_ref` every frame, so
+    at rest the shader collapses to a no-op copy of the screen. This has to
+    sit on a canvas item drawn AFTER gameplay (so there's something to blur)
+    but BEFORE the HUD (so speed/timer text never gets streaked) - the
+    overlay's own `CanvasLayer` uses `layer = 1`, and both `.tscn` files now
+    give the `UI` `CanvasLayer` an explicit `layer = 10` so that ordering can
+    never depend on scene-tree tiebreaking. The overlay node is parented
+    under `get_tree().current_scene` (i.e. `Main`), not `get_tree().root` -
+    the `LevelButton`'s `change_scene_to_file()` frees the old
+    `current_scene` and everything under it but does NOT touch nodes
+    attached directly to root, so parenting there would leak one overlay
+    per level switch. Confirmed the shader actually compiles and catches
+    real GLSL errors even in this GPU-less environment: deliberately fed
+    Godot's dummy rendering driver a broken shader first and it reported a
+    real `SHADER ERROR` with line/column info, so headless testing here can
+    validate shader *syntax* even though it obviously can't confirm the
+    rendered *look*.
+- **Time-of-day / biome palette** (`scripts/TimeOfDayPalette.gd`, a
+  `Resource` subtype with `sunrise()`/`day()`/`dusk()` static presets, plus
+  `scripts/PaletteController.gd`): one `apply_preset()` call recolors sky,
+  background hills, terrain's `ground_color`, the rim highlight, and the
+  ambient `CanvasModulate` tint together - swapping the whole game's mood is
+  one call, never a per-system reskin or an asset swap. Deliberately does
+  **not** touch any gameplay-communicative color (the six zone accents, the
+  ball's Flow tint) - a palette is environment mood, not a gameplay reskin,
+  same reasoning `Terrain.gd` already documents for why zone colors need to
+  stay unambiguous. `Main.gd` exports `time_of_day: PaletteController.Preset`
+  so each scene can eventually pick its own default (both currently ship on
+  `DAY`, i.e. every value identical to what Background/TerrainRenderer
+  already hardcoded, so this is a no-op visually until something actually
+  switches presets). Applying a palette calls `Background.refresh()` /
+  `TerrainRenderer.refresh_colors()`, which tear down and rebuild just the
+  visual fill from current color exports - cheap since it only happens on a
+  preset switch, never per-frame.
+  - **`class_name` exception, deliberate and narrow**: every other script in
+    this project is referenced by node path/type annotation, never a global
+    class name (matches the rest of this file's low-machinery style). These
+    two scripts are the one place that changes: `TimeOfDayPalette` needs to
+    be `.new()`-constructed from its own static factory methods, and
+    `PaletteController` needs its nested `Preset` enum to be a real type
+    `Main.gd` can export as an Inspector dropdown - both are exactly the
+    case Godot's own convention recommends `class_name` for (custom Resource
+    subtypes, and a type another script needs to reference). Don't spread
+    `class_name` to other scripts without the same kind of concrete need.
+  - **Another editor-pass gotcha, same family as the `.uid` one at the top
+    of this file**: a fresh `class_name` declaration isn't visible to a
+    plain `--headless` run until an actual editor pass
+    (`--headless --editor --quit-after N`) has registered it into
+    `.godot/global_script_class_cache.cfg` - a brand new `TimeOfDayPalette`/
+    `PaletteController` reference failed with "Could not find type... in the
+    current scope" under plain `--headless` right after being written, and
+    only started resolving once that cache existed. Critically, `rm -rf
+    .godot` (the very command CLAUDE.md tells you to run before every
+    validation pass, to force a clean reimport) wipes that cache right back
+    out - so after adding or renaming a `class_name`, the editor pass has to
+    run again, and it has to be the step immediately before whatever
+    `--headless` run needs the class resolved, not just "once, ever."
 - Verification here is necessarily partial: this environment has no
   display, so headless testing can confirm the scene builds without errors,
   the new nodes exist with sane values (shadow alpha shrinking with height,
   glow color actually shifting toward `flow_color` as Flow rises, tile
-  seams matching exactly at the math level), and - most importantly - that
-  none of it touched the physics/collision path (re-ran the full 4-policy
-  benchmark on both levels after this pass; every number matched the
-  pre-visual-pass baseline exactly, confirming zero physics regression).
-  Whether it actually looks good is necessarily the user's own call on their
-  device, the same limitation noted for the LevelButton fix above.
+  seams matching exactly at the math level, trail width/alpha/length
+  scaling with speed, camera zoom/lookahead/streak-intensity all actually
+  changing per-frame, all three palette presets recoloring the right fields
+  while leaving zone accents untouched), and - most importantly - that none
+  of it touched the physics/collision path (re-ran the full 4-policy
+  benchmark on both levels after every pass in this section; every number
+  matched the pre-visual-pass baseline exactly every time, confirming zero
+  physics regression). Whether it actually looks good is necessarily the
+  user's own call on their device, the same limitation noted for the
+  LevelButton fix above.
 
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)

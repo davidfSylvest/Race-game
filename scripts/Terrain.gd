@@ -13,26 +13,22 @@ extends Node2D
 ## {type, start, end} list instead of one const pair per type, so a level
 ## can have as many of each kind as its layout needs (level 2 has two boost
 ## pads and two bhop-style corridors, level 1 has one of each).
+##
+## This script owns physics/collision and the course-layout data ONLY -
+## everything about how the ground LOOKS (fill colors, the per-vertex
+## shading gradient, the rim highlight) lives in the separate
+## TerrainRenderer.gd, instantiated below once _build_ground() has the
+## collision + top-curve points ready. The renderer reads _top_points
+## directly rather than recomputing the curve, so visual and physics
+## terrain can never desync - splitting rendering out doesn't relax that
+## guarantee, it just moves "how it looks" into its own swappable file.
 
 @export var level: int = 1 # 1 or 2 - see _configure_level()
 @export var sample_spacing: float = 24.0 # world px between collision/visual sample points; smaller = smoother curve
 @export var ground_thickness: float = 500.0 # how far the solid ground extends below the lowest point
 @export var finish_runway: float = 1200.0 # flat ground built past the last keyframe, purely as a safety buffer - NOT counted in course_end_x() (the finish line doesn't move). Main.gd's end-zone trigger sits back from the true polygon edge by a much smaller END_ZONE_MARGIN, and at the speeds this course produces (1000+ px/s) that margin alone is under 0.2s of travel - a player who crosses the line without instantly releasing the stick (i.e. almost everyone) would run clean off the actual end of the terrain a moment later and silently trigger the fall-recovery reset, wiping a run that had just finished. Found via a headless test that kept feeding forward lean past the finish line rather than assuming a player stops the instant they cross.
-@export var ground_color: Color = Color(0.5, 0.52, 0.56, 1)
-@export var bhop_accent_color: Color = Color(0.78, 0.56, 0.22, 1) # marks a chain-friendly bump section so it reads as a distinct "try chaining jumps here" zone on sight
-@export var ice_accent_color: Color = Color(0.75, 0.88, 0.95, 1) # pale icy blue marking a low-friction patch
-@export var mud_accent_color: Color = Color(0.42, 0.32, 0.22, 1) # muddy brown marking a high-friction patch
-@export var boost_accent_color: Color = Color(0.95, 0.9, 0.15, 1) # electric yellow-gold marking a boost pad, distinct from every other zone color
-@export var launch_pad_accent_color: Color = Color(0.3, 0.95, 0.5, 1) # vivid spring green marking a launch pad, distinct from every other zone color
-@export var flow_accent_color: Color = Color(0.55, 0.35, 0.85, 1) # soft violet marking level 2's sustained rolling-hills gauntlet - purely a "you're in the zone" callout, no gameplay effect of its own
 @export var ice_friction_scale: float = 0.06 # fraction of normal friction loss on ice - 0.06 means ~94% less grip than normal ground
 @export var mud_friction_scale: float = 6.5 # multiple of normal friction loss in mud
-
-@export_group("Ground Shading")
-@export var top_edge_lighten: float = 0.22 # how much brighter the top (sunlit) curve vertices are than the flat zone color - baked as Polygon2D per-vertex colors, no shader needed, so it's cheap on mobile and works with every zone color automatically
-@export var bottom_edge_darken: float = 0.4 # how much darker the bottom (shadowed/buried) vertices are than the flat zone color
-@export var rim_highlight_color: Color = Color(1, 0.98, 0.85, 0.55) # warm, translucent - drawn as a single Line2D tracing the whole course's surface, like sunlight catching the very top edge
-@export var rim_highlight_width: float = 5.0
 
 ## Each entry: {type: "ice"/"mud"/"boost"/"launch"/"bhop"/"flow", start: float, end: float}.
 ## Populated per-level in _configure_level(). Checked in this same order
@@ -47,11 +43,16 @@ var zones: Array[Dictionary] = []
 var keyframes: Array[Vector2] = []
 
 var _top_points: PackedVector2Array = PackedVector2Array()
+var _bottom_y: float = 0.0
 
 
 func _ready() -> void:
 	_configure_level()
 	_build_ground()
+	var renderer: Node2D = preload("res://scripts/TerrainRenderer.gd").new()
+	renderer.name = "TerrainRenderer"
+	add_child(renderer)
+	renderer.build(self)
 
 
 ## Loads this instance's course layout. Keeping both levels' data in one
@@ -335,17 +336,25 @@ func zone_name_at(x: float) -> String:
 	return ""
 
 
-func _zone_color(type: String) -> Color:
-	match type:
-		"ice": return ice_accent_color
-		"mud": return mud_accent_color
-		"boost": return boost_accent_color
-		"launch": return launch_pad_accent_color
-		"bhop": return bhop_accent_color
-		"flow": return flow_accent_color
-		_: return ground_color
+## Read-only access to the exact sample points the collision polygon was
+## built from - TerrainRenderer (and anything else that wants to draw the
+## surface) uses these directly instead of resampling height_at() itself,
+## which is what guarantees the visual can never drift from the collision.
+func get_top_points() -> PackedVector2Array:
+	return _top_points
 
 
+## The visual fill's bottom edge y - same value the collision polygon's own
+## bottom corners use (see _build_ground()), computed once there rather than
+## re-derived by the renderer, so the two can't drift apart either.
+func get_bottom_y() -> float:
+	return _bottom_y
+
+
+## Builds ONLY the physics/collision ground (a StaticBody2D + one unified
+## CollisionPolygon2D) and records _top_points along the way. All visual
+## representation is TerrainRenderer's job - see get_top_points() above and
+## the module docstring at the top of this file.
 func _build_ground() -> void:
 	var start_x: float = keyframes[0].x
 	# The physical polygon extends finish_runway past the last keyframe as a
@@ -363,11 +372,11 @@ func _build_ground() -> void:
 	var max_y: float = -INF
 	for p in _top_points:
 		max_y = max(max_y, p.y)
-	var bottom_y: float = max_y + ground_thickness
+	_bottom_y = max_y + ground_thickness
 
 	var polygon_points: PackedVector2Array = _top_points.duplicate()
-	polygon_points.append(Vector2(end_x, bottom_y))
-	polygon_points.append(Vector2(start_x, bottom_y))
+	polygon_points.append(Vector2(end_x, _bottom_y))
+	polygon_points.append(Vector2(start_x, _bottom_y))
 
 	var body := StaticBody2D.new()
 	body.name = "Ground"
@@ -376,68 +385,3 @@ func _build_ground() -> void:
 	var collision := CollisionPolygon2D.new()
 	collision.polygon = polygon_points
 	body.add_child(collision)
-
-	# Visual is split into colored zones sharing sample points at every
-	# boundary (no seam/gap) - collision above stays a single unified
-	# polygon, completely unaffected by how the visual is carved up.
-	var boundaries: Array[float] = [start_x, end_x]
-	for z in zones:
-		boundaries.append(z.start)
-		boundaries.append(z.end)
-	boundaries.sort()
-	for i in range(boundaries.size() - 1):
-		var seg_start: float = boundaries[i]
-		var seg_end: float = boundaries[i + 1]
-		if seg_end <= seg_start:
-			continue
-		var mid: float = (seg_start + seg_end) / 2.0
-		var color: Color = ground_color
-		for z in zones:
-			if mid >= z.start and mid <= z.end:
-				color = _zone_color(z.type)
-				break
-		_add_visual_segment(body, seg_start, seg_end, color, bottom_y)
-
-	# One continuous highlight along the whole course's surface, on top of
-	# every zone-colored segment - simplest way to sell "sunlight catching
-	# the top edge" without seams at zone boundaries or a per-segment shader.
-	var rim := Line2D.new()
-	rim.points = _top_points
-	rim.width = rim_highlight_width
-	rim.default_color = rim_highlight_color
-	rim.joint_mode = Line2D.LINE_JOINT_ROUND
-	rim.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	rim.end_cap_mode = Line2D.LINE_CAP_ROUND
-	rim.antialiased = true
-	body.add_child(rim)
-
-
-func _add_visual_segment(body: Node, seg_start: float, seg_end: float, color: Color, bottom_y: float) -> void:
-	var start_index: int = 0
-	while start_index < _top_points.size() - 1 and _top_points[start_index].x < seg_start:
-		start_index += 1
-	var end_index: int = start_index
-	while end_index < _top_points.size() - 1 and _top_points[end_index].x < seg_end:
-		end_index += 1
-
-	var points: PackedVector2Array = _top_points.slice(start_index, end_index + 1)
-	var top_point_count: int = points.size()
-	points.append(Vector2(points[points.size() - 1].x, bottom_y))
-	points.append(Vector2(points[0].x, bottom_y))
-
-	# Per-vertex colors fake a "lit from directly above" gradient - lighter on
-	# the visible top curve, darker toward the buried bottom edge - cheap
-	# (baked once here, no shader) and works with any zone's base color
-	# automatically. Uniform `color` is left white so it doesn't double-tint
-	# on top of these.
-	var vertex_colors: PackedColorArray = PackedColorArray()
-	vertex_colors.resize(points.size())
-	var lit: Color = color.lightened(top_edge_lighten)
-	var shaded: Color = color.darkened(bottom_edge_darken)
-	for i in range(points.size()):
-		vertex_colors[i] = lit if i < top_point_count else shaded
-
-	var visual := Polygon2D.new()
-	visual.polygon = points
-	visual.vertex_colors = vertex_colors
-	body.add_child(visual)

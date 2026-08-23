@@ -112,6 +112,7 @@ extends CharacterBody2D
 @onready var _shadow: Polygon2D = _make_shadow()
 @onready var _shading: Node2D = _make_shading()
 @onready var _glow: PointLight2D = _make_glow()
+@onready var _trail: Line2D = _make_trail()
 
 var current_speed: float = 0.0
 var flow: float = 0.0 # 0..1, see "Flow Meter" above
@@ -205,6 +206,16 @@ func _make_glow_texture() -> GradientTexture2D:
 	tex.width = 128
 	tex.height = 128
 	return tex
+
+
+## Standalone speed-trail system - see TrailEffect.gd's own doc comment for
+## why it's a fully separate file rather than logic inlined here. Player.gd's
+## only contact with it is this factory and the update()/clear() calls in
+## _update_visual()/reset() below.
+func _make_trail() -> Line2D:
+	var trail: Line2D = preload("res://scripts/TrailEffect.gd").new()
+	add_child(trail)
+	return trail
 
 
 func _circle_polygon(radius: float, segments: int) -> PackedVector2Array:
@@ -530,6 +541,8 @@ func reset(spawn_position: Vector2) -> void:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0
 		visual.modulate = normal_color
+	if _trail:
+		_trail.clear()
 
 
 ## Spins the ball to match its actual ground speed (rolling without
@@ -569,3 +582,6 @@ func _update_visual() -> void:
 		# highlight doesn't warp into an oval during a landing/launch pop -
 		# it should read as a light staying still, not part of the impact.
 		_shading.scale.y = 1.0 / visual.scale.y if visual.scale.y != 0.0 else 1.0
+
+	if _trail:
+		_trail.update(global_position, current_speed)

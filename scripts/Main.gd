@@ -18,34 +18,12 @@ extends Node2D
 @onready var level_button: Button = %LevelButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 
+@export var time_of_day: PaletteController.Preset = PaletteController.Preset.DAY # sunrise/day/dusk - see PaletteController.gd; per-scene so Main.tscn and Level2.tscn could eventually differ, though both currently ship on DAY
+
 const PLAYER_GROUND_OFFSET: float = 40.0 # ball diameter (2x Player.ball_radius) - keeps the ball's bottom at the surface, matches Player's local origin-at-ground-contact convention
 const END_ZONE_HEIGHT: float = 400.0
 const END_ZONE_MARGIN: float = 100.0 # back off from the very last keyframe so there's a flat runway after it
-
-const CAMERA_BASE_ZOOM: float = 0.85
-const CAMERA_MIN_ZOOM: float = 0.55 # zoomed out this far at CAMERA_ZOOM_SPEED_REF and above
-const CAMERA_ZOOM_SPEED_REF: float = 850.0 # px/s at which zoom reaches its minimum - raised from 500 since Flow/Chain bonuses now routinely push speed past 1000 px/s, and the old reference maxed the zoom out well before that, making the camera look identical at 500 vs 1160 despite a very different pace
-const CAMERA_LOOKAHEAD_MAX: float = 260.0 # px offset toward travel direction at full speed, so blind crests on the now-long course are readable
-const CAMERA_EASE: float = 0.08
 const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point before an auto-recovery kicks in
-
-# A rough landing already reads on the character (squash) and the HUD
-# ("ROUGH" chain text), but neither of those is visible in your peripheral
-# vision the way the whole screen moving is - a camera shake sells the hit
-# as an actual impact. Uses Camera2D.offset (not .position) so the jolt is
-# instant and separate from the eased lookahead lerp below, which would
-# otherwise smooth a sharp shake into a soft, unconvincing wobble.
-const MAX_LANDING_SHAKE_PX: float = 14.0 # shake amplitude on a completely mismatched (quality 0) landing; scales down to ~0 on a clean one
-const CAMERA_SHAKE_DECAY_PX_PER_SEC: float = 45.0 # how fast the shake amplitude bleeds back to 0 - fast/snappy, not a lingering wobble
-
-# Launch's symmetric counterpart to the landing shake above: a clean launch
-# pops the camera briefly wider (zoom OUT, since lower Camera2D.zoom values
-# show more world) to sell the "leaving the ground" moment, easing back to
-# the normal speed-based zoom just as fast as it appeared. Mild by design -
-# per Player.gd, a launch isn't really a "mistake" the way a bad landing is,
-# so unlike the shake this only fires on good launches, not bad ones.
-const MAX_LAUNCH_ZOOM_KICK: float = 0.05 # zoom units subtracted (zoomed further out) on a perfectly-matched (quality 1) launch
-const CAMERA_ZOOM_KICK_DECAY_PER_SEC: float = 0.18 # how fast the kick eases back out
 
 # A new best time already printed to the console ("NEW BEST"), which is
 # useless on the user's actual platform - there's no console visible on the
@@ -62,11 +40,6 @@ var _finished: bool = false
 var _spawn_position: Vector2
 var _best_time: float = -1.0 # session-only, no persistence - just gives restart-and-retry a sense of progress
 var _fall_recovery_y: float = 0.0
-var _camera_shake_amount: float = 0.0
-var _last_seen_landing_event: int = 0
-var _camera_zoom_kick: float = 0.0
-var _last_seen_launch_event: int = 0
-var _camera_zoom_smoothed: float = CAMERA_BASE_ZOOM # eased speed-based zoom, kept separate from camera.zoom itself so the kick (applied only to the final displayed value) never feeds back into next frame's ease source
 var _new_best_flash_timer: float = 0.0
 
 
@@ -88,6 +61,16 @@ func _ready() -> void:
 	add_child(ambient)
 	move_child(ambient, 1)
 
+	# One call recolors sky/hills/ground/rim/ambient together for the chosen
+	# time-of-day preset - see PaletteController.gd. terrain's TerrainRenderer
+	# child already exists by this point (children ready before their parent,
+	# so Terrain._ready() - which builds it - already ran before Main's own
+	# _ready() body here).
+	var palette_controller := PaletteController.new()
+	palette_controller.preset = time_of_day
+	add_child(palette_controller)
+	palette_controller.setup(background, terrain.get_node("TerrainRenderer"), ambient)
+
 	var spawn_x: float = terrain.spawn_x()
 	_spawn_position = Vector2(spawn_x, terrain.height_at(spawn_x) - PLAYER_GROUND_OFFSET)
 	player.global_position = _spawn_position
@@ -95,6 +78,16 @@ func _ready() -> void:
 
 	var end_x: float = terrain.course_end_x() - END_ZONE_MARGIN
 	end_zone.global_position = Vector2(end_x, terrain.height_at(end_x) - END_ZONE_HEIGHT / 2.0)
+
+	# Swaps in the camera's whole self-contained behavior (speed zoom,
+	# lookahead, landing shake, launch zoom kick, the speed-streak overlay) by
+	# attaching CameraRig.gd to the EXISTING Camera2D node - see that script's
+	# own doc comment for why this reads as "set_script + init," not a new
+	# node. The old Camera2D's scene-configured zoom/position_smoothing are
+	# harmless leftover defaults; CameraRig.gd overwrites zoom/position every
+	# frame from init() onward.
+	camera.set_script(preload("res://scripts/CameraRig.gd"))
+	camera.init(player)
 
 	end_zone.body_entered.connect(_on_end_zone_body_entered)
 	restart_button.pressed.connect(_on_restart_pressed)
@@ -141,20 +134,9 @@ func _process(delta: float) -> void:
 	flow_bar_fill.size.x = flow_bar_bg.size.x * clamp(player.flow, 0.0, 1.0)
 	chain_label.text = _chain_text()
 	_update_best_flash(delta)
-
-	if player.landing_event_id != _last_seen_landing_event:
-		_last_seen_landing_event = player.landing_event_id
-		var shake: float = (1.0 - player.last_landing_quality) * MAX_LANDING_SHAKE_PX
-		_camera_shake_amount = max(_camera_shake_amount, shake)
-	_camera_shake_amount = max(_camera_shake_amount - CAMERA_SHAKE_DECAY_PX_PER_SEC * delta, 0.0)
-
-	if player.launch_event_id != _last_seen_launch_event:
-		_last_seen_launch_event = player.launch_event_id
-		var kick: float = player.last_launch_quality * MAX_LAUNCH_ZOOM_KICK
-		_camera_zoom_kick = max(_camera_zoom_kick, kick)
-	_camera_zoom_kick = max(_camera_zoom_kick - CAMERA_ZOOM_KICK_DECAY_PER_SEC * delta, 0.0)
-
-	_update_camera()
+	# Camera behavior (speed zoom, lookahead, landing shake, launch zoom
+	# kick, speed-streak overlay) is fully self-driven by CameraRig.gd once
+	# init() has been called - see _ready() above. Nothing to poll here.
 
 
 func _chain_text() -> String:
@@ -165,21 +147,6 @@ func _chain_text() -> String:
 	if player.chain_count > 1:
 		return "%s   Chain x%d" % [word, player.chain_count]
 	return word
-
-
-func _update_camera() -> void:
-	var speed_t: float = clamp(player.current_speed / CAMERA_ZOOM_SPEED_REF, 0.0, 1.0)
-	var target_zoom: float = lerp(CAMERA_BASE_ZOOM, CAMERA_MIN_ZOOM, speed_t)
-	_camera_zoom_smoothed = lerp(_camera_zoom_smoothed, target_zoom, CAMERA_EASE)
-	var displayed_zoom: float = max(_camera_zoom_smoothed - _camera_zoom_kick, CAMERA_MIN_ZOOM * 0.5)
-	camera.zoom = Vector2(displayed_zoom, displayed_zoom)
-
-	var lookahead: Vector2 = Vector2.ZERO
-	if player.velocity.length() > 10.0:
-		lookahead = player.velocity.normalized() * CAMERA_LOOKAHEAD_MAX * speed_t
-	camera.position = camera.position.lerp(lookahead, CAMERA_EASE)
-
-	camera.offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _camera_shake_amount if _camera_shake_amount > 0.0 else Vector2.ZERO
 
 
 func _update_timer_label() -> void:
@@ -231,13 +198,7 @@ func _on_level_button_pressed() -> void:
 
 func _on_restart_pressed() -> void:
 	player.reset(_spawn_position)
-	camera.reset_smoothing()
-	camera.offset = Vector2.ZERO
-	_camera_shake_amount = 0.0
-	_last_seen_landing_event = player.landing_event_id
-	_camera_zoom_kick = 0.0
-	_camera_zoom_smoothed = CAMERA_BASE_ZOOM
-	_last_seen_launch_event = player.launch_event_id
+	camera.reset_camera()
 	_new_best_flash_timer = 0.0
 	best_label.modulate = Color.WHITE
 	_elapsed = 0.0

@@ -18,6 +18,21 @@ const SKY_MARGIN: float = 500.0 # sky rect overshoots the 1280x720 default viewp
 
 
 func _ready() -> void:
+	_rebuild()
+
+
+## Rebuilds the sky/hills from the CURRENT color exports - PaletteController
+## calls this after changing sky_top_color/etc. on a time-of-day/biome swap.
+## Geometry is identical every time (only the exported colors change), so a
+## full rebuild is cheap and only ever happens on a preset switch, never
+## per-frame.
+func refresh() -> void:
+	_rebuild()
+
+
+func _rebuild() -> void:
+	for child in get_children():
+		child.queue_free()
 	add_child(_make_sky())
 	# Two layers at different motion_scale for parallax depth - the far layer
 	# barely drifts as the camera moves, the near layer drifts more, so they
