@@ -275,7 +275,17 @@ func _physics_process(delta: float) -> void:
 ## below. Redirecting first means the multiplier is the whole story.
 func _apply_landing(tangent: Vector2) -> void:
 	var pre_speed: float = velocity.length()
-	var travel_sign: float = signf(velocity.x) if absf(velocity.x) > 0.001 else 1.0
+	# Sign against the tangent itself, not raw world-x: a jump impulse fired on
+	# a steep slope adds along the floor NORMAL, which has its own x-component
+	# and can tip world-x slightly negative for a frame even while travel is
+	# still clearly forward along the slope. Since this pick decides which
+	# direction the FULL speed magnitude gets thrown onto below, a raw-x sign
+	# flip that disagreed with the actual direction of travel was enough to
+	# reverse an entire run's momentum on landing - found via a headless bot
+	# that combined aimed lean with repeated jumping and got stuck bouncing
+	# back and forth forever on hill 1's climb, never breaking through despite
+	# carrying real speed (600-800 px/s) the whole time.
+	var travel_sign: float = signf(velocity.dot(tangent)) if absf(velocity.dot(tangent)) > 0.001 else 1.0
 	var landing_target: Vector2 = tangent if travel_sign >= 0.0 else -tangent
 	var landing_quality: float = clamp(velocity.normalized().dot(landing_target), 0.0, 1.0)
 	velocity = landing_target * pre_speed * lerp(landing_penalty_worst, landing_bonus_best, landing_quality)
@@ -302,7 +312,9 @@ func _apply_landing(tangent: Vector2) -> void:
 ## Safe to just scale here since there's no floor left to collide with the
 ## same frame (that's what "no longer on_floor" means).
 func _apply_launch(tangent: Vector2) -> void:
-	var travel_sign: float = signf(velocity.x) if absf(velocity.x) > 0.001 else 1.0
+	# See _apply_landing above for why this is signed against the tangent
+	# rather than raw world-x.
+	var travel_sign: float = signf(velocity.dot(tangent)) if absf(velocity.dot(tangent)) > 0.001 else 1.0
 	var launch_target: Vector2 = tangent if travel_sign >= 0.0 else -tangent
 	var launch_quality: float = clamp(velocity.normalized().dot(launch_target), 0.0, 1.0)
 	velocity *= lerp(launch_penalty_worst, launch_bonus_best, launch_quality)
