@@ -70,6 +70,7 @@ extends CharacterBody2D
 @export var max_tilt_degrees: float = 35.0 # visual tilt (forward/back) at full effective lean.x
 @export var max_crouch_scale: float = 0.35 # vertical squash/stretch at full effective lean.y - crouch tucking down, stand tall leaning up, so the angle-matching mechanic is visible, not just felt
 @export var normal_color: Color = Color(0.85, 0.25, 0.25, 1)
+@export var flow_color: Color = Color(1.0, 0.75, 0.15, 1) # blended in as Flow rises toward 1.0 - the HUD bar tells you the number, but the character itself should visibly light up with it too, since Flow is a moment-to-moment feel state, not just a stat
 @export var max_landing_squash: float = 0.4 # extra one-shot squash on a completely mismatched landing, on top of the lean-driven crouch - a rough landing should visibly read as an impact, a clean one barely shows it
 @export var landing_squash_decay_rate: float = 3.0 # per second, how fast the squash springs back out
 @export var max_launch_stretch: float = 0.25 # brief upward stretch on takeoff, scaled by launch quality - a clean pop off a crest should look like one
@@ -306,4 +307,4 @@ func _update_visual(lean: Vector2) -> void:
 		return
 	visual.rotation = lean.x * deg_to_rad(max_tilt_degrees)
 	visual.scale.y = clamp(1.0 - lean.y * max_crouch_scale - _landing_squash + _launch_stretch, 0.3, 1.6)
-	visual.modulate = normal_color
+	visual.modulate = normal_color.lerp(flow_color, flow)
