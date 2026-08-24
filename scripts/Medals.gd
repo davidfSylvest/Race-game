@@ -59,9 +59,33 @@ extends Node
 ## course's 10 grapple points. Measured finishing times: 41.383s, 41.900s,
 ## 42.167s, 42.650s (zero deaths on all four); DNF policies all died
 ## repeatedly at one of the four crossings without finishing.
-const GOLD: Dictionary = {1: 16.5, 2: 31.5, 3: 40.0, 4: 42.0}
-const SILVER: Dictionary = {1: 18.5, 2: 35.5, 3: 57.5, 4: 44.5}
-const BRONZE: Dictionary = {1: 25.5, 2: 50.0, 3: 68.0, 4: 48.0}
+##
+## Levels 1-3 RE-MEASURED after each got a set-piece finale appended to its
+## end ("The Drop" / "The Spike" / "The Canyon" - see CLAUDE.md), lengthening
+## all three courses - the old thresholds (measured against the shorter
+## courses) no longer meant the same thing, so this needed the same 4-policy
+## treatment as a from-scratch level rather than a guessed adjustment:
+## - Level 1 (course_end_x 9400 -> 12100): all four policies finish, zero
+##   deaths on every one (same pattern the original level 1 had). Measured:
+##   perfect 19.95s, decent 23.68s, randomish 36.10s, poor 93.27s. Bronze =
+##   randomish (3rd-place-of-benchmarks), same rule as before.
+## - Level 2 (19300 -> 22750): perfect/decent/randomish finish clean, poor
+##   DNFs (52 deaths - dies repeatedly, same "poor DNFs at the gap" pattern
+##   the original level 2 had). Measured: perfect 37.58s, decent 47.27s,
+##   randomish 75.02s (3rd-place finisher -> bronze), poor DNF.
+## - Level 3 (23800 -> 26300): only perfect/decent finish this time -
+##   randomish and poor both DNF (126 and 61 deaths respectively). Fewer
+##   finishers than levels 1/2, but consistent with level 3 already being
+##   the hardest/longest of the three even before its own set-piece - the
+##   "3rd-place-of-benchmarks" rule needs a 3rd finisher to apply literally,
+##   so bronze is set with a generous buffer above decent's time instead,
+##   same spirit as Level 4's bronze (a human won't reproduce bot-precise
+##   play, and DNF is still the real bronze-miss signal here, same as it was
+##   for the original level 3's "poor" policy). Measured: perfect 42.62s,
+##   decent 53.97s, randomish/poor DNF.
+const GOLD: Dictionary = {1: 20.5, 2: 38.5, 3: 43.5, 4: 42.0}
+const SILVER: Dictionary = {1: 24.5, 2: 48.5, 3: 55.0, 4: 44.5}
+const BRONZE: Dictionary = {1: 37.0, 2: 76.5, 3: 65.0, 4: 48.0}
 
 
 func gold_time(level: int) -> float:

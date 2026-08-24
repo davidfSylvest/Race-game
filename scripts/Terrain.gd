@@ -154,7 +154,19 @@ func _level_1_keyframes() -> Array[Vector2]:
 		Vector2(8280, 950),
 		Vector2(8440, 820),  # one bigger bump to close the run out
 		Vector2(8620, 950),
-		Vector2(9400, 950),  # finish straight
+		Vector2(9400, 950),  # end of the original course - now a mid-course
+		                     # marker, not the finish. "The Drop" set-piece
+		                     # (see _level_1_zones()) is appended after it.
+		Vector2(9700, 950),  # flat lead-in / anticipation before the drop
+		Vector2(10600, 1600), # THE DROP - the steepest, deepest single descent
+		                      # in level 1 (dx=900 dy=650, peak ~47.3deg, well
+		                      # under floor_max_angle's 55deg but noticeably
+		                      # steeper than anything else in this level - a
+		                      # deliberate visual/physical landmark, not just
+		                      # "another hill").
+		Vector2(10900, 1600), # flat canyon floor at the bottom (300px) - launch pad here
+		Vector2(11800, 950),  # climb back out, symmetric (dx=900 dy=-650, peak ~47.3deg)
+		Vector2(12100, 950),  # new finish straight
 	]
 
 
@@ -186,10 +198,25 @@ func _level_1_zones() -> Array[Dictionary]:
 		# where there's no more terrain to launch off before the finish.
 		{"type": "boost", "start": 8700.0, "end": 8900.0},
 		# The rhythmic bump run above - bounded at 8620 (where the bumps
-		# actually end and the flat finish straight begins) rather than left
-		# open-ended, so the finish straight doesn't cosmetically tag/color
-		# as "BHOP" once it's plain flat ground.
+		# actually end and the flat run toward "The Drop" begins) rather than
+		# left open-ended, so that flat run doesn't cosmetically tag/color as
+		# "BHOP" once it's plain flat ground.
 		{"type": "bhop", "start": 7000.0, "end": 8620.0},
+		# "The Drop" - the set-piece appended after the original course end
+		# (9400) per the user's explicit ask for level variety: "various
+		# different hills and slopes... be creative, dont just copy paste the
+		# same thing again and again." A launch pad at the bottom of the
+		# steepest descent in the level (see _level_1_keyframes()) pops the
+		# rider back into the air the instant they've bled off the drop's
+		# speed on flat ground - a big final send before the finish, using
+		# the same terrain-launch mechanic every other level already has,
+		# just placed somewhere level 1 has never put one before (a valley
+		# floor, not a crest top). 800px of flat ground separates the boost
+		# pad above from the drop's edge, so a boosted approach settles onto
+		# flat ground well before the descent begins - same "no launch
+		# immediately after a boost" lesson the boost pad's own placement
+		# history above already established, just re-applied here.
+		{"type": "launch", "start": 10650.0, "end": 10800.0},
 	]
 
 
@@ -315,7 +342,25 @@ func _level_2_keyframes() -> Array[Vector2]:
 		Vector2(17540, 500),
 		Vector2(17900, 700),  # settle down (dx=360 dy=200, peak ~38deg)
 		Vector2(18400, 750),  # nearly flat (dx=500 dy=50, peak ~8deg) - boost pad #2
-		Vector2(19300, 750),  # finish straight
+		Vector2(19300, 750),  # end of the original course - now a mid-course
+		                      # marker, not the finish. "The Spike" set-piece
+		                      # (see _level_2_zones()) is appended after it.
+		Vector2(19600, 750),  # flat lead-in
+		Vector2(20500, 0),    # THE SPIKE apex - by far the tallest point in
+		                      # the level (y=0 vs this level's usual 450-1150
+		                      # range - twice the elevation change of any
+		                      # existing crest), a real landmark visible from
+		                      # far down the course. Ascent dx=900 dy=-750,
+		                      # peak ~51.3deg, under floor_max_angle's 55deg.
+		Vector2(20650, 0),    # flat peak top (150px) - launch pad here, for a
+		                      # full send off the tallest point in the level
+		Vector2(21750, 900),  # descent off the far side (dx=1100 dy=900,
+		                      # peak ~50.8deg - wider than the ascent so the
+		                      # much bigger drop stays under the same safety
+		                      # margin)
+		Vector2(22050, 900),  # flat bottom (300px)
+		Vector2(22750, 750),  # climb back to finish height (dx=700 dy=-150,
+		                      # peak ~17.9deg, gentle) - new finish straight
 	]
 
 
@@ -329,6 +374,12 @@ func _level_2_zones() -> Array[Dictionary]:
 		{"type": "flow", "start": 8500.0, "end": 15500.0},
 		{"type": "bhop", "start": 15500.0, "end": 17540.0},
 		{"type": "boost", "start": 18500.0, "end": 18700.0},
+		# "The Spike" - the set-piece appended after the original course end
+		# (19300), per the user's explicit ask for level variety. A launch
+		# pad right on the tallest peak in the level (see
+		# _level_2_keyframes()) for a full send off the landmark itself, not
+		# just a scenic detour.
+		{"type": "launch", "start": 20560.0, "end": 20650.0},
 	]
 
 
@@ -467,7 +518,25 @@ func _level_3_keyframes() -> Array[Vector2]:
 		Vector2(21800, 750), # flat run - gap #2 sits inside this stretch with runway both sides
 		Vector2(22400, 750), # flat continues past the gap for landing runway
 		Vector2(22900, 750), # boost pad #2
-		Vector2(23800, 750), # finish straight
+		Vector2(23800, 750), # end of the original course - now a mid-course
+		                     # marker, not the finish. "The Canyon" set-piece
+		                     # (see _level_3_zones()) is appended after it.
+		Vector2(24100, 750), # flat lead-in
+		Vector2(24950, 1450), # THE CANYON's near wall - a narrow, steep-walled
+		                      # dive (dx=850 dy=700, peak ~50.9deg), distinct
+		                      # from every existing ice/mud valley in this
+		                      # game, which are all broad, gentle-floored
+		                      # basins by design. This is the opposite: a
+		                      # short, sharp drop into a NARROW floor.
+		Vector2(25150, 1450), # canyon floor - only 200px wide, deliberately
+		                      # narrower than any other valley floor in the
+		                      # game (the broadest comparison, ice valley 1,
+		                      # is 500px) - one final ice slide at the very
+		                      # bottom, a bookend callback to the level's
+		                      # opening ice patch.
+		Vector2(26000, 750),  # climb out the far wall, symmetric (dx=850
+		                      # dy=-700, peak ~50.9deg)
+		Vector2(26300, 750),  # new finish straight
 	]
 
 
@@ -481,6 +550,13 @@ func _level_3_zones() -> Array[Dictionary]:
 		{"type": "flow", "start": 10100.0, "end": 17800.0},
 		{"type": "bhop", "start": 18300.0, "end": 21020.0},
 		{"type": "boost", "start": 22950.0, "end": 23150.0},
+		# "The Canyon" - the set-piece appended after the original course end
+		# (23800), per the user's explicit ask for level variety. One final
+		# ice patch on the narrow canyon floor - a bookend to the level's
+		# opening ice valley, and the first time ice appears on a NARROW
+		# floor instead of a broad one, so the "carry speed through, or
+		# slide out of control" skill check reads differently at speed.
+		{"type": "ice", "start": 24950.0, "end": 25150.0},
 	]
 
 

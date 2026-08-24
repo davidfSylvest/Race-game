@@ -71,6 +71,24 @@ ability plus the anchor points needed to use it meaningfully - not a general
 license for more abilities, a double-jump, wall-running, etc. unless asked
 for that specific thing again.
 
+Most recent exception: the user gave direct critical feedback on Level 4
+right after it shipped - "this might never work as youre doing the level
+design and its very bad, alot of repetition and not so much as flow and
+challenging" - and asked for real diversity across levels: "i want levels
+to be diverse, have various different hills and sloped and jumps and what
+not? maybe even a loop, who knows. be creative dont just copy paste the
+same thing again and again." Confirmed scope, when asked, was "Level 4 +
+touch up 1-3." See "Level 4, 'Grapple Gauntlet' - REBUILT" and "Levels 1-3
+finale set-pieces" under Architecture for what was actually built (Level 4's
+uniform 9-section formula replaced with four differently-shaped grapple
+crossings woven between real rollable terrain; levels 1-3 each got one new,
+distinctive terrain feature appended after their existing finish line) and
+why a true vertical loop specifically isn't possible on this engine's
+terrain (`height_at(x)` is single-valued by construction). This is scoped to
+reworking/extending the FOUR EXISTING levels' terrain variety - not a
+license to add a 5th level, new mechanics, or other scope beyond what's
+already on the "standing, scoped authorization" for levels 4-10 noted above.
+
 ## Godot version: 4.7.1 — always, no exceptions
 
 **Always use Godot 4.7.1-stable.** Not "latest," not 4.3, not whatever a
@@ -667,6 +685,60 @@ progress"); that design choice is gone now, replaced by an actual save file.
     own numbers are untouched since none of the shared Player.gd/Joystick.gd
     physics logic changed, only new level-3-only data and a strictly-additive
     `Main.gd` generalization.
+- **Levels 1-3 finale set-pieces** - the same user request that drove the
+  Level 4 rebuild above ("i want levels to be diverse, have various
+  different hills and slopes and jumps... be creative dont just copy paste
+  the same thing again and again") was explicitly scoped, when asked, to
+  cover levels 1-3 too ("Level 4 + touch up 1-3"). Rather than reflowing
+  each course's existing, already-measured hazards (gaps/checkpoints/zones,
+  all tuned against specific benchmark numbers this file documents at
+  length), each level got ONE new, distinctive terrain feature APPENDED
+  after its original finish line - a deliberately surgical approach: every
+  existing keyframe/zone/gap/checkpoint/grapple-point x-coordinate in all
+  three levels is untouched, only the new tail segment and the final
+  `course_end_x` moved. This is a lighter-weight version of the same
+  "measure, don't guess" discipline the Level 4 rebuild needed, just lower
+  risk since no new gaps, checkpoints, or mechanics were introduced.
+  - **Level 1 - "The Drop"** (`_level_1_keyframes()`/`_level_1_zones()`):
+    a flat lead-in, then the steepest, deepest single descent in the level
+    (dx=900 dy=650, peak ~47.3deg - noticeably steeper than anything else
+    in level 1, though still safely under `floor_max_angle`'s 55deg), a
+    launch pad on the flat canyon floor at the bottom (the first launch pad
+    in this game placed on a valley floor rather than a crest top), then a
+    symmetric climb back out to a new finish line. Course length: 9400 ->
+    12100.
+  - **Level 2 - "The Spike"** (`_level_2_keyframes()`/`_level_2_zones()`):
+    a flat lead-in, then a climb to the single tallest point in the game so
+    far (y=0, roughly twice the elevation change of any existing crest in
+    levels 1-3 - a real visual landmark), a launch pad right at the peak for
+    a full send off the tallest point in the level, a wide descent down the
+    far side (widened to keep the much bigger drop under the same 55deg
+    safety margin as the ascent), then a gentle climb back to a new finish
+    line. Course length: 19300 -> 22750.
+  - **Level 3 - "The Canyon"** (`_level_3_keyframes()`/`_level_3_zones()`):
+    a flat lead-in, then a short, sharp, NARROW dive (200px floor - the
+    narrowest valley floor in the game, versus 400-500px for every existing
+    ice/mud valley, which are all broad, gentle basins by design) with one
+    final ice patch at the bottom, a deliberate bookend callback to the
+    level's opening ice valley, then a symmetric climb back out to a new
+    finish line. Course length: 23800 -> 26300.
+  - **Verified headlessly, and re-measured from scratch rather than scaled
+    from the old numbers** (the old thresholds were tuned against the
+    shorter courses and no longer meant the same thing once each level got
+    longer): a tangent-tracking bot confirmed a single landing event through
+    each level's new launch pad (zero unwanted bounce at the new drop/spike/
+    canyon curve transitions) and reasonable air time (1.1-1.4s, no runaway
+    ballistic arcs). The same 4-policy bot used for every other level's
+    medals (perfect/decent/randomish/poor - see `Medals.gd`) then raced each
+    full course including the new tail: level 1 has all four policies
+    finish clean (same pattern the original level 1 had); level 2 has
+    perfect/decent/randomish finish clean and poor DNF (52 deaths - the same
+    "poor DNFs at the gap" pattern the original level 2 had); level 3 has
+    only perfect/decent finish, with randomish/poor both DNFing (126/61
+    deaths) - fewer finishers than levels 1/2, consistent with level 3
+    already being the hardest/longest course even before its own set-piece.
+    See `Medals.gd`'s docstring for the full measured numbers and how each
+    level's new bronze threshold was derived.
 - **Level 4, "Grapple Gauntlet" - REBUILT after the user rejected the
   original version.** The user's original ask was a level where "the
   majority is grapple only... by far the majority of the map," which
