@@ -211,12 +211,31 @@ func _level_1_checkpoints() -> Array[float]:
 	return [1950.0, 5900.0, 8650.0]
 
 
-## Floats above the level's one gap (5980-6280, flat crest-2 top is
-## 700 in height) - 220px up so it's a genuine swing, not a trivial hop, and
-## comfortably inside Player.grapple_max_range from anywhere along the
-## 5900-6300 flat approach.
+## The user's follow-up ask, after the grapple ability shipped: "add a lot of
+## grappling spots all around the maps, so it becomes a choice in a lot of
+## places" - not just the one gap-crossing point every level already had.
+## Scattered one point over (or near) every zone type that has real
+## traversal weight - each 220px above the local ground/floor height, same
+## rule as the original gap points, so every one is a genuine swing, not a
+## trivial hop:
+## - Ice valley 1 (1400-1900, floor 1050): swing across the low-friction
+##   patch entirely instead of riding it - skips the "carry speed well or
+##   slide out of control" skill check for a guaranteed but slower-to-aim
+##   crossing.
+## - Mud valley 2 (4600-5000, floor 1150): same idea, the high-friction
+##   complement - swing over instead of eating the friction penalty.
+## - Mid-bhop-section (7160-8620, bump peaks at 850): one point above the
+##   rhythmic bump run, an alternative to chaining jumps through it for the
+##   Chain bonus - swinging over trades that bonus for a guaranteed clean
+##   pass over the bumps.
+## - The existing gap point (5980-6280) is untouched.
 func _level_1_grapple_points() -> Array[Vector2]:
-	return [Vector2(6130.0, 480.0)]
+	return [
+		Vector2(1650.0, 830.0),  # ice valley 1
+		Vector2(4800.0, 930.0),  # mud valley 2
+		Vector2(6130.0, 480.0),  # gap (unchanged)
+		Vector2(7800.0, 630.0),  # bhop section
+	]
 
 
 ## Level 2: roughly 2x level 1's length, built around one long uninterrupted
@@ -340,10 +359,24 @@ func _level_2_checkpoints() -> Array[float]:
 	return [2150.0, 6850.0, 15550.0, 17750.0]
 
 
-## Floats above level 2's one gap (18000-18300, ~700-720 in height there) -
-## same 220px-up placement rule as level 1's point.
+## Same "a lot of grapple spots, one over each zone with real traversal
+## weight" rule as level 1 - see that function's comment for the full
+## rationale. Level 2's flow gauntlet (8500-15500, 7000px of six gentle
+## rolling hills) is deliberately built for SUSTAINED grounded contact so
+## Flow can actually hold near its cap - see the flow-zone note under
+## "Level 2" in this file's Architecture docs - so it gets exactly ONE
+## point, positioned to swing over a single hill's dip rather than the
+## whole gauntlet, preserving that design intent while still offering a
+## choice at that one spot.
 func _level_2_grapple_points() -> Array[Vector2]:
-	return [Vector2(18150.0, 480.0)]
+	return [
+		Vector2(1850.0, 930.0),   # ice valley 1
+		Vector2(5000.0, 680.0),   # bhop corridor 1
+		Vector2(6550.0, 930.0),   # mud valley 2
+		Vector2(12000.0, 530.0),  # one hill-dip inside the flow gauntlet
+		Vector2(16500.0, 280.0),  # bhop corridor 2
+		Vector2(18150.0, 480.0),  # gap (unchanged)
+	]
 
 
 ## Level 3: harder and somewhat longer than level 2 (course_end_x ~23800 vs
@@ -462,11 +495,22 @@ func _level_3_checkpoints() -> Array[float]:
 	return [2250.0, 5750.0, 7200.0, 8850.0, 13650.0, 17850.0, 21750.0]
 
 
-## Floats above each of level 3's two gaps, same 220px-up rule as levels 1/2:
-## gap 1 (9000-9300, flat run at height 450) and gap 2 (21900-22200, flat run
-## at height 750).
+## Same "a lot of grapple spots" rule as levels 1/2 - see level 1's
+## _level_1_grapple_points() for the full rationale. Level 3's flow gauntlet
+## (10100-17800, 7700px of eight gentle rolling hills, the longest in the
+## game) gets the same single-dip treatment level 2's gauntlet does, for the
+## same reason: it's built for sustained grounded contact, not a swing-past.
+## The two existing gap points (9000-9300, 21900-22200) are unchanged.
 func _level_3_grapple_points() -> Array[Vector2]:
-	return [Vector2(9150.0, 230.0), Vector2(22050.0, 530.0)]
+	return [
+		Vector2(1950.0, 980.0),   # ice valley 1
+		Vector2(5100.0, 630.0),   # bhop corridor 1
+		Vector2(6450.0, 980.0),   # mud valley 2
+		Vector2(9150.0, 230.0),   # gap 1 (unchanged)
+		Vector2(13950.0, 480.0),  # one hill-dip inside the flow gauntlet
+		Vector2(19650.0, 380.0),  # bhop corridor 2
+		Vector2(22050.0, 530.0),  # gap 2 (unchanged)
+	]
 
 
 ## Ground surface height at world x, following the same curve used to build

@@ -692,9 +692,9 @@ drawn.
   measured against a jump-only 4-policy bot - if a gap became a *mandatory*
   grapple crossing, every one of those numbers would need re-measuring, and
   a whole new "poor" baseline would need establishing for a mechanic that
-  didn't exist when bronze was set. Instead, one grapple point floats above
-  each of the game's four gaps (one on level 1, one on level 2, two on level
-  3), positioned 220px above the flat run's height so it's a genuine swing
+  didn't exist when bronze was set. One grapple point floats above each of
+  the game's four gaps (one on level 1, one on level 2, two on level 3),
+  positioned 220px above the flat run's height so it's a genuine swing
   rather than a trivial hop, and comfortably within `Player.grapple_max_range`
   (600px) from anywhere along that flat approach - giving a player who's
   unlocked the ability a faster/flashier alternative to jumping, without
@@ -704,6 +704,29 @@ drawn.
   to still finish in exactly the same time as before this feature existed
   (level 3's perfect-policy time matched to the millisecond: 39.20s both
   before and after).
+- **Expanded to "a lot of spots" on a direct follow-up ask.** The first pass
+  above only put a grapple point at each gap - the user came back and
+  explicitly asked for "a lot of grappling spots all around the maps, so it
+  becomes a choice in a lot of places," not just at the one crossing every
+  level already had. Each level now has a point over (or near) every zone
+  with real traversal weight - the ice valley, the mud valley, each bhop
+  corridor, plus the gap point(s) - same 220px-above-local-ground rule as
+  the original points, so every one is still a genuine swing, not a trivial
+  hop: level 1 went from 1 point to 4, level 2 from 1 to 6, level 3 from 2
+  to 7 (see each level's `_level_N_grapple_points()` for the exact
+  coordinates and per-point reasoning). The one deliberate exception: each
+  level's flow gauntlet (the long, gentle-hill zone built specifically for
+  *sustained, uninterrupted* grounded contact - see the flow-zone note under
+  "Level 2" below) gets exactly ONE point, positioned to swing over a single
+  hill's dip rather than the whole gauntlet, so the new points add choice
+  without undercutting the one zone whose entire design purpose is staying
+  on the ground. Verified headlessly on all three levels: every one of the
+  17 points now in the game engages cleanly from a realistic approach
+  distance, swings with a stable rope (no NaN, distance never runs away from
+  the nominal length), and - same check as before - the jump-only benchmark
+  bot's finish time is unaffected by the added data (level 1 and 2 matched
+  their prior times exactly; level 3 was within a single physics frame,
+  ordinary run-to-run noise on a ~2360-frame simulation, not a regression).
 - **`TerrainRenderer._add_grapple_markers()`** draws a small ring + center
   dot at each point (vivid cyan, `grapple_point_color` - distinct from every
   zone accent color, and matching `Player.grapple_rope_color` so the rope
