@@ -519,18 +519,43 @@ progress"); that design choice is gone now, replaced by an actual save file.
 - **`scripts/Ghost.gd`** (new): a visual-only, collision-free replay of a
   level's best run - a translucent circle (same radius as the ball) that
   walks through a recorded array of `[x, y, roll_angle]` triples, one triple
-  per physics frame. Deliberately frame-indexed rather than time-indexed:
-  Main.gd's new `_physics_process()` records the live run's own position into
-  `_ghost_recording` on the exact same physics tick it calls
-  `_ghost.advance_frame()`, so recording and playback share one clock by
-  construction - no separate interpolation/timing-drift logic needed, and a
-  faster or slower live run naturally pulls ahead of or falls behind the
-  ghost exactly like racing a real recorded lap. The ghost does NOT reset on
-  death (`_on_death()` never touches it) for the same reason `_elapsed`
-  doesn't: both stay in lockstep with the live run through a death exactly as
-  they do through the rest of it. It does reset on an explicit Restart (`
-  _ghost.stop()`, restarting again from frame 0 once the next attempt's timer
-  starts), matching the live run's own full reset there.
+  per physics frame.
+  - **Real height bug found and fixed via playtest feedback**: the ghost
+    rendered noticeably too low and hard to see. Root cause was a missing
+    offset, not a visibility-only issue - Main.gd's recorded `[x, y, ...]`
+    triples use `player.position.y`, which is the ball's GROUND-CONTACT
+    point by convention, not its visual center (`Player`'s own `Visual`/
+    `CollisionShape2D` nodes sit at a local `(0, -20)` offset from that
+    point - see `PLAYER_GROUND_OFFSET`'s comment in Main.gd). `Ghost.gd`'s
+    circle was drawn at local `(0, 0)`, i.e. centered exactly on the
+    recorded ground-contact y instead of `RADIUS` px above it - about half
+    the circle sat below the actual terrain surface, both reading as "off
+    in height" and getting hidden behind the ground fill (the ghost's
+    `z_index = -1`, same as the ball's own shadow, only stays invisible-free
+    of the terrain because it sits in the open space above the surface -
+    Player._make_shadow() proves that z at the correct height is fine).
+    Fixed by giving the ghost's `Polygon2D` the same `(0, -RADIUS)` local
+    offset Player's own Visual uses, so the two conventions finally match -
+    verified headlessly that the ghost's resulting world-space y for a given
+    recorded frame now lands exactly at `recorded_y - RADIUS`, the same
+    place the real ball's visual center would be for that position.
+  - Separately, also raised opacity (0.5 -> 0.8) and added a bright
+    `Line2D` rim outline, since even correctly positioned a pale translucent
+    blue circle read as faint against this project's similarly pale-blue
+    sky/hill palette (see Background.gd) - the outline keeps the silhouette
+    readable regardless of what's directly behind it.
+  - Deliberately frame-indexed rather than time-indexed:
+    Main.gd's new `_physics_process()` records the live run's own position into
+    `_ghost_recording` on the exact same physics tick it calls
+    `_ghost.advance_frame()`, so recording and playback share one clock by
+    construction - no separate interpolation/timing-drift logic needed, and a
+    faster or slower live run naturally pulls ahead of or falls behind the
+    ghost exactly like racing a real recorded lap. The ghost does NOT reset on
+    death (`_on_death()` never touches it) for the same reason `_elapsed`
+    doesn't: both stay in lockstep with the live run through a death exactly as
+    they do through the rest of it. It does reset on an explicit Restart (`
+    _ghost.stop()`, restarting again from frame 0 once the next attempt's timer
+    starts), matching the live run's own full reset there.
 - **Level unlock gate**: `SaveManager.is_level_unlocked(level)` - level 1 is
   always unlocked; level N (N>1) needs level N-1's best time at or under
   `Medals.bronze_time(N-1)`. Wired into the existing `LevelButton` rather

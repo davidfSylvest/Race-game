@@ -9,7 +9,12 @@ extends Node2D
 ## not a timer - keeps it exactly in sync with the live run, deaths included).
 
 const RADIUS: float = 20.0 # matches Player.ball_radius
-const GHOST_COLOR: Color = Color(0.55, 0.75, 1.0, 0.5)
+# Raised from 0.5 - at 0.5 a pale blue circle read as nearly invisible against
+# this project's similarly pale-blue sky/hill palette (see Background.gd).
+# 0.8 keeps it clearly translucent (still reads as "not the real ball") while
+# actually being visible during a race.
+const GHOST_COLOR: Color = Color(0.55, 0.8, 1.0, 0.8)
+const OUTLINE_COLOR: Color = Color(0.85, 0.95, 1.0, 0.9) # bright rim so the silhouette pops even where it's near the same color as the sky behind it
 
 var frames: Array = []
 var _index: int = 0
@@ -21,9 +26,27 @@ func _ready() -> void:
 	_visual = Polygon2D.new()
 	_visual.polygon = _circle_polygon(RADIUS, 16)
 	_visual.color = GHOST_COLOR
+	# Matches Player.gd's own Visual/CollisionShape2D local offset (0, -20):
+	# Player's own position.y is the ball's GROUND-CONTACT point, not its
+	# visual center - the real ball is drawn RADIUS px above it. Main.gd
+	# records raw player.position.y into ghost frames, so without this same
+	# offset the ghost rendered centered on the ground-contact line instead
+	# of the ball's actual visual center - about half the circle sat below
+	# the terrain surface, both looking "off in height" and (combined with
+	# z_index below) getting hidden behind the ground fill.
+	_visual.position = Vector2(0, -RADIUS)
 	add_child(_visual)
+
+	var outline := Line2D.new()
+	outline.points = _circle_polygon(RADIUS, 24)
+	outline.closed = true
+	outline.width = 3.0
+	outline.default_color = OUTLINE_COLOR
+	outline.position = Vector2(0, -RADIUS)
+	add_child(outline)
+
 	visible = false
-	z_index = -1 # reads behind the live player, which is the one that matters
+	z_index = -1 # reads behind the live player, which is the one that matters - same z the ground-contact shadow already uses successfully (Player._make_shadow()), since both sit in the open space above the terrain fill, not inside it
 
 
 func load_frames(new_frames: Array) -> void:
