@@ -35,7 +35,7 @@ const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point 
 # incorrectly go back to Level 1 instead of forward to Level 3. Generalized to
 # cycle forward through all N levels, wrapping back to 1 after the last -
 # bump TOTAL_LEVELS as each new level is added.
-const TOTAL_LEVELS: int = 3
+const TOTAL_LEVELS: int = 4
 
 # A new best time already printed to the console ("NEW BEST"), which is
 # useless on the user's actual platform - there's no console visible on the

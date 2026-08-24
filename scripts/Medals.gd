@@ -35,9 +35,24 @@ extends Node
 ## rule still applies identically: bronze = randomish's time (the 3rd
 ## finisher), same as levels 1/2. Measured: perfect 39.2s, decent 56.1s,
 ## randomish 66.3s, poor 276.2s (all four finished, zero deaths).
-const GOLD: Dictionary = {1: 16.5, 2: 31.5, 3: 40.0}
-const SILVER: Dictionary = {1: 18.5, 2: 35.5, 3: 57.5}
-const BRONZE: Dictionary = {1: 25.5, 2: 50.0, 3: 68.0}
+##
+## Level 4 ("Grapple Gauntlet" - see CLAUDE.md) is a different KIND of level
+## entirely: no ground to lean-track at all, just a chain of grapple swings.
+## Skill here is release-TIMING precision, not lean tracking, so the 4
+## policies became "how close to the validated safe release window (25-35%
+## of rope length past the bottom of the swing)": perfect hits it exactly
+## every time, decent/randomish add growing timing jitter, poor is centered
+## on a genuinely too-early release (the realistic novice mistake this
+## level actually punishes) plus jitter. poor DNFs (23 deaths, still
+## retrying at the frame budget) - a believable bronze-miss baseline, same
+## as levels 1/2. perfect/decent/randomish all finish within a tight band
+## (53.9-56.5s) since release timing affects cycle count more than raw
+## speed on this level. Bronze = randomish's time (3rd-place-of-benchmarks),
+## same rule as every other level. Measured: perfect 54.3s, decent 53.9s,
+## randomish 56.5s (1 death), poor DNF.
+const GOLD: Dictionary = {1: 16.5, 2: 31.5, 3: 40.0, 4: 55.0}
+const SILVER: Dictionary = {1: 18.5, 2: 35.5, 3: 57.5, 4: 58.0}
+const BRONZE: Dictionary = {1: 25.5, 2: 50.0, 3: 68.0, 4: 60.0}
 
 
 func gold_time(level: int) -> float:

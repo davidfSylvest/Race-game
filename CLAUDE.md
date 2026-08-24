@@ -175,11 +175,13 @@ overrode player input) that a headless smoke test caught before commit.
 ## Architecture
 
 - **N levels, N scenes, one set of scripts.** `scenes/Main.tscn` (level 1,
-  the original course), `scenes/Level2.tscn` (level 2), and `scenes/Level3.tscn`
-  (level 3 - see "Level 3" under Persistence/Ghosts/Unlocks below) share the
-  exact same `Player.gd`/`Main.gd`/`Joystick.gd` and even the same
-  `Terrain.gd` script; the only per-scene difference is a single `level`
-  property on the Terrain node (`1`/`2`/`3` respectively - see
+  the original course), `scenes/Level2.tscn` (level 2), `scenes/Level3.tscn`
+  (level 3 - see "Level 3" under Persistence/Ghosts/Unlocks below), and
+  `scenes/Level4.tscn` (level 4, "Grapple Gauntlet" - see the dedicated
+  section under Persistence/Ghosts/Unlocks) share the exact same
+  `Player.gd`/`Main.gd`/`Joystick.gd` and even the same `Terrain.gd` script;
+  the only per-scene difference is a single `level`
+  property on the Terrain node (`1`/`2`/`3`/`4` respectively - see
   `Terrain._configure_level()`). A small `LevelButton` in the HUD (same
   category as Restart/Jump, not a menu screen) calls
   `get_tree().change_scene_to_file(...)` to cycle forward through all
@@ -665,13 +667,86 @@ progress"); that design choice is gone now, replaced by an actual save file.
     own numbers are untouched since none of the shared Player.gd/Joystick.gd
     physics logic changed, only new level-3-only data and a strictly-additive
     `Main.gd` generalization.
-- Levels 4 through 10 don't exist yet and are the next planned increments
-  toward the user's 10-level ask, each needing the same treatment level 3
-  got (hand-tuned keyframes/zones, headlessly-verified gap/checkpoint
-  placement, measured medal thresholds) - substantial additional work,
-  planned as further incremental commits one level at a time rather than
-  invented wholesale in one pass, the same way each of levels 1/2/3 were
-  built as separate efforts rather than all at once.
+- **Level 4, "Grapple Gauntlet"** - the user's explicit ask: a level where
+  "the majority is grapple only, so from 1 grabbed to the next one without
+  anywhere to roll on... by far the majority of the map." A genuinely
+  different KIND of level from 1-3, not just harder terrain: there is no
+  hill content at all. `_level_4_keyframes()` is flat at y=600 for the
+  entire course; every bit of real, rollable ground lives in ten short
+  platforms (spawn, eight rest platforms, finish) that `_build_ground()`
+  leaves standing between nine `gaps` entries - everywhere else is a real
+  hole, exactly like every other gap in this game, just far bigger and far
+  more of the course (~78% void by construction - see
+  `LEVEL_4_VOID_WIDTH`/`LEVEL_4_CYCLE_WIDTH`). Each void section is crossed
+  by chaining 3 grapple points together (27 points total), landing on the
+  next rest platform's checkpoint before diving into the next void.
+  - **Point spacing and chain length were MEASURED, not guessed, via a long
+    sequence of headless prototypes** - see `_level_4_grapple_points()`'s
+    doc comment in Terrain.gd for the full blow-by-blow (spacing sweep,
+    release-timing sweep, several rejected fixes). The short version: an
+    isolated test chain established 300px spacing with release timing
+    20-30% of the rope's length past the bottom of the arc as a reliably
+    completable pattern (real margin, not a knife's edge) for chains up to
+    ~12 points; a real full-COURSE run then needed shorter (3-point)
+    sections to stay safely inside that margin over a much longer 27-point
+    chain.
+  - **The real, hard-won discovery: a full course run kept failing at the
+    very last swing of every section, and it took a proper root-cause trace
+    to find why.** The failure looked like a level-design problem (wrong
+    spacing, wrong timing) but was actually a TERRAIN problem: a rope swing
+    with no reel-in mechanic naturally sinks 250-400px below its own anchor
+    by the time of release (confirmed directly in a headless trace, and
+    confirmed again that a small release-timing fraction only recovers a
+    tiny fraction of that height - a pendulum only truly climbs back near
+    its entry height swinging almost all the way to the far side, not at
+    20-30% past the bottom). Every existing gap in this game has a sheer
+    vertical wall at its edge (fine for a JUMP arcing in from above, which
+    is how every other gap in levels 1-3 is crossed), but a swing release
+    approaches LOW, from underneath that edge - so the ball was slamming
+    into the platform's leading edge like a wall (caught unambiguously in
+    the trace: `velocity.x` snapped from ~460 to exactly `0.0` in a single
+    frame at the platform's edge) and either sticking there or sliding
+    beneath it into the void, never once reaching the top, no matter how
+    the spacing, buffer size, or anchor height were tuned - because none of
+    those addressed the actual cause.
+  - **The fix: a real sloped landing ramp into every platform** (`
+    LEVEL_4_RAMP_LENGTH`/`LEVEL_4_RAMP_RISE`, added via two extra keyframes
+    per platform - `_level_4_keyframes()`), using the exact same smoothstep
+    curve interpolation every other slope in this game already relies on.
+    A low, sunk approach now rolls up the ramp onto the platform instead of
+    crashing into a wall - the same fix a real platformer reaches for when
+    an approach comes in from below a ledge. Only needed on the ENTRY side
+    of each platform; the exit side was never the problem (leaving a
+    platform under normal rolling control is the same well-tested pattern
+    used everywhere else in this game). The ramp is ADDED after the void,
+    not carved out of it, so the actual swing-chain distance and the last
+    grapple point's position over open air are completely unchanged - the
+    fix only changes what's waiting at the far end.
+  - **Verified headlessly, and this time it's a real pass, not a near-miss**:
+    all 8 checkpoints re-establish `is_on_floor()` within 0 frames of a
+    reset. A full-course chain-swing bot using release timing 25%, 30%, and
+    35% (three different values, not one lucky number) all cleared the
+    entire 27-point course with **zero deaths**, in 54.3s/56.6s/59.0s
+    respectively - confirming a real margin exists, not a razor's edge.
+  - **Medal thresholds measured with a 4-policy bot adapted for this
+    level's actual skill expression** - since there's no ground to
+    lean-track in a void, skill here is release-TIMING precision and
+    consistency instead: perfect hits the validated release window exactly
+    every time, decent/randomish add growing timing jitter around it, poor
+    is centered on a genuinely too-early release (the realistic novice
+    mistake this level actually punishes, not just noise) plus jitter.
+    Measured: perfect 54.3s, decent 53.9s, randomish 56.5s (1 death), poor
+    DNF (23 deaths, still retrying at the frame budget) - a believable
+    bronze-miss baseline, same pattern as every other level. Bronze set at
+    randomish's time (3rd-place-of-benchmarks), same rule as levels 1-3.
+    See `Medals.gd` for the numbers (gold 55.0, silver 58.0, bronze 60.0).
+- Levels 5 through 10 don't exist yet and are the next planned increments
+  toward the user's 10-level ask, each needing the same treatment levels
+  1-4 got (hand-tuned layout, headlessly-verified physics, measured medal
+  thresholds) - substantial additional work, planned as further incremental
+  commits one level at a time rather than invented wholesale in one pass,
+  the same way each of levels 1-4 were built as separate efforts rather
+  than all at once.
 
 ### Grapple Points
 

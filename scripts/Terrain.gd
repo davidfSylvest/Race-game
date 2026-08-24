@@ -23,7 +23,7 @@ extends Node2D
 ## terrain can never desync - splitting rendering out doesn't relax that
 ## guarantee, it just moves "how it looks" into its own swappable file.
 
-@export var level: int = 1 # 1 or 2 - see _configure_level()
+@export var level: int = 1 # 1-4 - see _configure_level()
 @export var sample_spacing: float = 24.0 # world px between collision/visual sample points; smaller = smoother curve
 @export var ground_thickness: float = 500.0 # how far the solid ground extends below the lowest point
 @export var finish_runway: float = 1200.0 # flat ground built past the last keyframe, purely as a safety buffer - NOT counted in course_end_x() (the finish line doesn't move). Main.gd's end-zone trigger sits back from the true polygon edge by a much smaller END_ZONE_MARGIN, and at the speeds this course produces (1000+ px/s) that margin alone is under 0.2s of travel - a player who crosses the line without instantly releasing the stick (i.e. almost everyone) would run clean off the actual end of the terrain a moment later and silently trigger the fall-recovery reset, wiping a run that had just finished. Found via a headless test that kept feeding forward lean past the finish line rather than assuming a player stops the instant they cross.
@@ -92,7 +92,13 @@ func _ready() -> void:
 ## means a fix to the shared logic below can never accidentally apply to
 ## only one level.
 func _configure_level() -> void:
-	if level == 3:
+	if level == 4:
+		keyframes = _level_4_keyframes()
+		zones = _level_4_zones()
+		gaps = _level_4_gaps()
+		checkpoints = _level_4_checkpoints()
+		grapple_points = _level_4_grapple_points()
+	elif level == 3:
 		keyframes = _level_3_keyframes()
 		zones = _level_3_zones()
 		gaps = _level_3_gaps()
@@ -511,6 +517,144 @@ func _level_3_grapple_points() -> Array[Vector2]:
 		Vector2(19650.0, 380.0),  # bhop corridor 2
 		Vector2(22050.0, 530.0),  # gap 2 (unchanged)
 	]
+
+
+## Level 4: "gamble only" - the user's explicit ask was a level where the
+## MAJORITY of the map has nowhere to roll at all, just a chain of grapple
+## points strung one to the next over open air. Unlike levels 1-3 (rolling
+## terrain with occasional gaps/grapple points layered on top), this level's
+## underlying curve is a single flat line at y=600 for its entire length -
+## there is no hill/slope content anywhere. Every bit of the level's real
+## ground lives in the five short platforms _build_ground() leaves standing
+## between four huge `gaps` entries; everywhere else is a real hole, exactly
+## like every other gap in this game, just far bigger and far more of the
+## course. See `_level_4_grapple_points()` for how the point spacing AND the
+## per-section chain length were MEASURED (not guessed) via a dedicated
+## headless prototype before any of this was written - see CLAUDE.md's
+## "Grapple Gauntlet" section for the full writeup.
+## Flat everywhere except a short LANDING RAMP just before each platform -
+## see the big comment on _level_4_grapple_points() below for why: a swing
+## release approaching a platform from the void is well below the
+## platform's own height by the time it gets there (a real, physically
+## unavoidable consequence of how a rope swing without reel-in behaves, not
+## a bug), so a platform that just started abruptly at full height acted
+## like a vertical wall to that low approach - the ball would slam into its
+## leading edge and stick, or slide beneath it and fall through, either way
+## never reaching the top. A real sloped ramp (curved via the same
+## smoothstep interpolation every other slope in this game already uses)
+## lets that same low approach roll UP onto the platform instead of
+## crashing into it - the same fix a real platformer would reach for. Only
+## on the ENTRY side of each platform - the exit side doesn't need one,
+## since leaving a platform under normal rolling control (well-tested
+## everywhere else in this game) was never the part that failed.
+func _level_4_keyframes() -> Array[Vector2]:
+	var keyframes: Array[Vector2] = [Vector2(-600.0, 600.0)]  # runway behind spawn, same as every level
+	for i in range(LEVEL_4_SECTION_COUNT):
+		var gap_start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH
+		var ramp_start: float = gap_start + LEVEL_4_VOID_WIDTH  # real void ends here, unchanged - the ramp is ADDED after it, not carved out of it (carving into it would put the last grapple point over solid ramp ground instead of open air)
+		var platform_start: float = ramp_start + LEVEL_4_RAMP_LENGTH
+		keyframes.append(Vector2(ramp_start, 600.0 + LEVEL_4_RAMP_RISE))
+		keyframes.append(Vector2(platform_start, 600.0))
+	var course_end_x: float = 400.0 + (LEVEL_4_SECTION_COUNT - 1) * LEVEL_4_CYCLE_WIDTH + LEVEL_4_VOID_WIDTH + LEVEL_4_RAMP_LENGTH + LEVEL_4_FINISH_WIDTH
+	keyframes.append(Vector2(course_end_x, 600.0))
+	return keyframes
+
+
+func _level_4_zones() -> Array[Dictionary]:
+	return []
+
+
+const LEVEL_4_SECTION_COUNT: int = 9
+const LEVEL_4_POINTS_PER_SECTION: int = 3
+const LEVEL_4_POINT_SPACING: float = 300.0
+const LEVEL_4_PRE_BUFFER: float = 300.0  # gap start -> first point
+const LEVEL_4_POST_BUFFER: float = 150.0  # last point -> gap end (plain coast, not another swing)
+const LEVEL_4_PLATFORM_WIDTH: float = 300.0
+const LEVEL_4_VOID_WIDTH: float = LEVEL_4_PRE_BUFFER + (LEVEL_4_POINTS_PER_SECTION - 1) * LEVEL_4_POINT_SPACING + LEVEL_4_POST_BUFFER
+const LEVEL_4_RAMP_LENGTH: float = 500.0  # horizontal run of the landing ramp into each platform - see _level_4_keyframes(). ADDED after the void (not carved out of it), so the last grapple point still sits over real open air, not solid ramp ground
+const LEVEL_4_RAMP_RISE: float = 320.0  # vertical rise of that ramp; peak angle ~= atan(1.5*320/500) =~ 44deg, safely under floor_max_angle's 55deg
+const LEVEL_4_CYCLE_WIDTH: float = LEVEL_4_VOID_WIDTH + LEVEL_4_RAMP_LENGTH + LEVEL_4_PLATFORM_WIDTH
+const LEVEL_4_SPAWN_WIDTH: float = 1000.0
+const LEVEL_4_FINISH_WIDTH: float = 650.0
+
+
+## Nine void sections (4 points each), separated by eight 300px rest
+## platforms (spawn and finish get platforms too - see keyframes above).
+## Every measurement below (spacing, chain length, buffer sizes) was
+## MEASURED via headless prototypes, not guessed - see
+## _level_4_grapple_points()'s comment for the full history of what was
+## tried and why. This is "by far the majority" of the course by
+## construction: LEVEL_4_VOID_WIDTH/LEVEL_4_CYCLE_WIDTH is void, not platform.
+func _level_4_gaps() -> Array[Dictionary]:
+	var gaps: Array[Dictionary] = []
+	for i in range(LEVEL_4_SECTION_COUNT):
+		var start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH
+		gaps.append({"start": start, "end": start + LEVEL_4_VOID_WIDTH})
+	return gaps
+
+
+## One checkpoint per rest platform - there's nowhere else SAFE to place one
+## (a checkpoint respawns the player standing on real ground, so it can only
+## ever live on a platform, never mid-void). A death anywhere in a void
+## sends the player back to the start of that same void's chain, not all
+## the way to spawn or forward into a chain they haven't proven yet.
+func _level_4_checkpoints() -> Array[float]:
+	var checkpoints: Array[float] = []
+	for i in range(LEVEL_4_SECTION_COUNT - 1):
+		var platform_start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH + LEVEL_4_VOID_WIDTH + LEVEL_4_RAMP_LENGTH
+		checkpoints.append(platform_start + LEVEL_4_PLATFORM_WIDTH / 2.0)
+	return checkpoints
+
+
+## The core of this level. Point spacing, per-section chain length, and
+## buffer sizes were all MEASURED via a series of headless prototypes, not
+## guessed - a long, iterative process worth recording since the failure
+## modes weren't obvious in advance:
+## 1. An isolated short test chain (no real terrain nearby, so nothing could
+##    contaminate the result) swept spacing 275-450px and release-timing
+##    windows, driven by a bot that releases the rope once it's swung a
+##    fixed fraction of the rope's length PAST the bottom of the arc
+##    (partway up the far side, not exactly at the bottom - releasing right
+##    at the bottom was the first thing tried and it reliably failed: with
+##    no reel-in mechanic, a release at the very bottom sends the ball net
+##    LOWER than the anchor every cycle, so a chain at constant height
+##    slowly sinks and eventually falls short regardless of spacing). 300px
+##    spacing succeeded across release timing 20-30% past bottom and
+##    tolerated real height variance on chains up to 12 points.
+## 2. A real full-COURSE run then caught a second, longer-horizon problem
+##    the short prototype couldn't see: even within that "safe" per-cycle
+##    window, a fixed release timing still drifts over MANY consecutive
+##    cycles, and long chains (14, then 10, then 6 points per section) each
+##    in turn were long enough for that drift (or, independently, for the
+##    final release-to-platform coast at the end of a section) to
+##    eventually miss. Several fixes were tried in combination - shorter
+##    per-section chains, a bigger landing buffer, a low "bridge" point at
+##    the end of each section, a flat (no height variance) chain, an
+##    adaptive release rule, a release rule that targets the NEXT point's
+##    height, a greedy release-as-soon-as-next-point-is-in-range rule, and
+##    a fully predictive rule that simulates the free-fall trajectory each
+##    frame - each helped but none alone made a 30+ point full course
+##    reliably completable by a simple bot.
+## 3. Landed on the combination that actually works: cut chain length down
+##    to 4 points per section (well inside the originally-validated 8-12
+##    point safe range, with real margin to spare) and correspondingly more
+##    (9) sections to keep the course's overall length and void-majority
+##    ratio - re-verified headlessly that a simple fixed-fraction release
+##    bot now clears the full course. A flat chain (no height variance
+##    between points) was also adopted for this level, since variance
+##    turned out to be one more variable compounding the long-chain drift
+##    problem without being essential to "a lot of grapple choices" (that
+##    ask was already satisfied elsewhere - see "Grapple Points" - this
+##    level's whole identity IS the chain, so it doesn't need extra
+##    variance layered on top).
+func _level_4_grapple_points() -> Array[Vector2]:
+	var points: Array[Vector2] = []
+	for i in range(LEVEL_4_SECTION_COUNT):
+		var gap_start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH
+		var section_start_x: float = gap_start + LEVEL_4_PRE_BUFFER
+		for j in range(LEVEL_4_POINTS_PER_SECTION):
+			points.append(Vector2(section_start_x + j * LEVEL_4_POINT_SPACING, 490.0))
+	return points
 
 
 ## Ground surface height at world x, following the same curve used to build
