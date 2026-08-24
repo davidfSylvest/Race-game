@@ -36,23 +36,32 @@ extends Node
 ## finisher), same as levels 1/2. Measured: perfect 39.2s, decent 56.1s,
 ## randomish 66.3s, poor 276.2s (all four finished, zero deaths).
 ##
-## Level 4 ("Grapple Gauntlet" - see CLAUDE.md) is a different KIND of level
-## entirely: no ground to lean-track at all, just a chain of grapple swings.
-## Skill here is release-TIMING precision, not lean tracking, so the 4
-## policies became "how close to the validated safe release window (25-35%
-## of rope length past the bottom of the swing)": perfect hits it exactly
-## every time, decent/randomish add growing timing jitter, poor is centered
-## on a genuinely too-early release (the realistic novice mistake this
-## level actually punishes) plus jitter. poor DNFs (23 deaths, still
-## retrying at the frame budget) - a believable bronze-miss baseline, same
-## as levels 1/2. perfect/decent/randomish all finish within a tight band
-## (53.9-56.5s) since release timing affects cycle count more than raw
-## speed on this level. Bronze = randomish's time (3rd-place-of-benchmarks),
-## same rule as every other level. Measured: perfect 54.3s, decent 53.9s,
-## randomish 56.5s (1 death), poor DNF.
-const GOLD: Dictionary = {1: 16.5, 2: 31.5, 3: 40.0, 4: 55.0}
-const SILVER: Dictionary = {1: 18.5, 2: 35.5, 3: 57.5, 4: 58.0}
-const BRONZE: Dictionary = {1: 25.5, 2: 50.0, 3: 68.0, 4: 60.0}
+## Level 4 ("Grapple Gauntlet," REBUILT - see CLAUDE.md for why: the user
+## rejected the original 9-identical-section version as repetitive and
+## asked for real variety) is a different KIND of level entirely: no ground
+## to lean-track at all through its four voids, just grapple-swing release
+## timing - skill here is release-TIMING precision, not lean tracking.
+## Re-measured from scratch after the rebuild, since the course layout,
+## void count/shapes, and overall length all changed. A fixed-hold-duration
+## bot (release N frames after each grab - more robust than a velocity/
+## position-threshold rule, which proved fragile against this level's
+## differently-shaped swings - see CLAUDE.md) swept several timing values:
+## every "reasonable" timing (roughly 15-22 frames per hop, 32-48 frames on
+## the void 3 big swing) finished cleanly within a tight 41.4-42.65s band -
+## release timing on THIS rebuilt layout mostly affects which grapple point
+## in a void's chain you end up needing, not overall pace, so the finishing
+## band is naturally narrow. Timings further from that window (too early,
+## too late, or inconsistent) reliably DNF (repeated deaths, never
+## completing) - a believable bronze-miss baseline, same pattern as every
+## other level. Gold/silver sit at/above the observed finishing band with a
+## small buffer; bronze sits with a generous buffer above the whole band,
+## since a human won't reproduce bot-precise timing on every one of the
+## course's 10 grapple points. Measured finishing times: 41.383s, 41.900s,
+## 42.167s, 42.650s (zero deaths on all four); DNF policies all died
+## repeatedly at one of the four crossings without finishing.
+const GOLD: Dictionary = {1: 16.5, 2: 31.5, 3: 40.0, 4: 42.0}
+const SILVER: Dictionary = {1: 18.5, 2: 35.5, 3: 57.5, 4: 44.5}
+const BRONZE: Dictionary = {1: 25.5, 2: 50.0, 3: 68.0, 4: 48.0}
 
 
 func gold_time(level: int) -> float:

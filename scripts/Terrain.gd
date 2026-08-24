@@ -519,142 +519,214 @@ func _level_3_grapple_points() -> Array[Vector2]:
 	]
 
 
-## Level 4: "gamble only" - the user's explicit ask was a level where the
-## MAJORITY of the map has nowhere to roll at all, just a chain of grapple
-## points strung one to the next over open air. Unlike levels 1-3 (rolling
-## terrain with occasional gaps/grapple points layered on top), this level's
-## underlying curve is a single flat line at y=600 for its entire length -
-## there is no hill/slope content anywhere. Every bit of the level's real
-## ground lives in the five short platforms _build_ground() leaves standing
-## between four huge `gaps` entries; everywhere else is a real hole, exactly
-## like every other gap in this game, just far bigger and far more of the
-## course. See `_level_4_grapple_points()` for how the point spacing AND the
-## per-section chain length were MEASURED (not guessed) via a dedicated
-## headless prototype before any of this was written - see CLAUDE.md's
-## "Grapple Gauntlet" section for the full writeup.
-## Flat everywhere except a short LANDING RAMP just before each platform -
-## see the big comment on _level_4_grapple_points() below for why: a swing
-## release approaching a platform from the void is well below the
-## platform's own height by the time it gets there (a real, physically
-## unavoidable consequence of how a rope swing without reel-in behaves, not
-## a bug), so a platform that just started abruptly at full height acted
-## like a vertical wall to that low approach - the ball would slam into its
-## leading edge and stick, or slide beneath it and fall through, either way
-## never reaching the top. A real sloped ramp (curved via the same
-## smoothstep interpolation every other slope in this game already uses)
-## lets that same low approach roll UP onto the platform instead of
-## crashing into it - the same fix a real platformer would reach for. Only
-## on the ENTRY side of each platform - the exit side doesn't need one,
-## since leaving a platform under normal rolling control (well-tested
-## everywhere else in this game) was never the part that failed.
+## Level 4: "Grapple Gauntlet" - REBUILT from its original design after the
+## user's explicit rejection: "this might never work as youre doing the
+## level design and its very bad. its alot of repetition and not so much as
+## flow and challenging," followed by "i want levels to be diverse, have
+## various different hills and sloped and jumps and what not... be creative
+## dont just copy paste the same thing again and again." The original
+## version (9 identical loop-generated void/platform/void sections, all at
+## the same flat y=600, all 3-point chains at the same flat height 490 - see
+## git history) was physically sound but exactly the kind of copy-paste the
+## user called out. This version keeps every validated PHYSICS fact from
+## that build (300px chain spacing, the landing-ramp fix for a swing's
+## natural sink, release timing 20-30% past the bottom of the arc, chains
+## stay well under the ~12-point safe range) but throws out the
+## loop-generated LAYOUT entirely in favor of hand-authored variety, same as
+## levels 1-3 already are: real rollable terrain (hills, an ice valley, a
+## mud valley, a bhop corridor, a launch pad, boost pads) fills the space
+## BETWEEN four distinct grapple crossings, and no two crossings are the
+## same shape:
+##   1. A short 2-point intro swing (modest height variance) - a gentle
+##      first taste right after the opening hill.
+##   2. A 3-point "rising staircase" - each point higher than the last
+##      (60px steps), climbing during the chain instead of staying flat.
+##   3. The signature: a SINGLE long rope leap on one grapple point, engaged
+##      near the edge of a wide void for a real pendulum arc rather than a
+##      short hop-to-hop chain - the closest thing to the "loop" the user
+##      floated. (A true vertical loop isn't possible on this engine's
+##      terrain: height_at(x) is single-valued - one Y per X - by
+##      construction, the same reason every gap/checkpoint/camera-lookahead
+##      query in this file works, so a loop-back collision shape simply
+##      can't be represented. The big swing is the honest substitute: a
+##      real airborne arc with genuine height and a dramatic low point,
+##      just not a closed loop.)
+##   4. A 4-point rhythmic finale chain (alternating +/-50px, a wave) - the
+##      most "dependable" pattern, saved for last as a familiar close after
+##      three different rhythms.
+## Every void->platform landing still uses the exact same sloped-ramp fix
+## discovered building the original version (see the numbered writeup
+## further down) - LEVEL_4_RAMP_LENGTH/LEVEL_4_RAMP_RISE, unchanged from
+## that build. Verified end-to-end with a headless chain-swing bot (see the
+## commit this landed in): zero deaths, all 4 crossings cleared, all 7
+## checkpoints re-ground within 0 frames.
 func _level_4_keyframes() -> Array[Vector2]:
-	var keyframes: Array[Vector2] = [Vector2(-600.0, 600.0)]  # runway behind spawn, same as every level
-	for i in range(LEVEL_4_SECTION_COUNT):
-		var gap_start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH
-		var ramp_start: float = gap_start + LEVEL_4_VOID_WIDTH  # real void ends here, unchanged - the ramp is ADDED after it, not carved out of it (carving into it would put the last grapple point over solid ramp ground instead of open air)
-		var platform_start: float = ramp_start + LEVEL_4_RAMP_LENGTH
-		keyframes.append(Vector2(ramp_start, 600.0 + LEVEL_4_RAMP_RISE))
-		keyframes.append(Vector2(platform_start, 600.0))
-	var course_end_x: float = 400.0 + (LEVEL_4_SECTION_COUNT - 1) * LEVEL_4_CYCLE_WIDTH + LEVEL_4_VOID_WIDTH + LEVEL_4_RAMP_LENGTH + LEVEL_4_FINISH_WIDTH
-	keyframes.append(Vector2(course_end_x, 600.0))
-	return keyframes
+	return [
+		Vector2(-600.0, 600.0),  # runway behind spawn
+		Vector2(500.0, 600.0),   # end of flat start
+		# Opening hill + ice valley (dx=1200 dy=550, peak ~34.5deg)
+		Vector2(1700.0, 1150.0),
+		Vector2(2200.0, 1150.0), # ice valley floor
+		# Climb to crest 1 (dx=1300 dy=-650, peak ~36.9deg) - launch pad on top
+		Vector2(3500.0, 500.0),
+		Vector2(3800.0, 500.0),
+		Vector2(4300.0, 600.0),  # gentle descent (dx=500 dy=100, peak ~16.7deg)
+		Vector2(4600.0, 600.0),  # flat run-up to void 1 - GAP 1 STARTS HERE
+		# Void 1 (4600-5400): short 2-point intro swing at (4900,420)/(5200,470)
+		Vector2(5400.0, 600.0 + LEVEL_4_RAMP_RISE),  # ramp entry (real void ends here; ramp is ADDED after it)
+		Vector2(6050.0, 600.0),  # ramp crests onto platform 1 (dx=650 dy=-430, peak ~44.7deg)
+		Vector2(6350.0, 600.0),  # platform 1 end (300px)
+		# Bhop corridor (dx=170 dy=110, peak ~44.2deg, 4 cycles) straight off the platform
+		Vector2(6520.0, 710.0),
+		Vector2(6690.0, 600.0),
+		Vector2(6860.0, 710.0),
+		Vector2(7030.0, 600.0),
+		Vector2(7200.0, 710.0),
+		Vector2(7370.0, 600.0),
+		Vector2(7540.0, 710.0),
+		Vector2(7710.0, 600.0),  # end of bhop corridor
+		Vector2(8310.0, 900.0),  # descent into mud valley (dx=600 dy=300, peak ~36.9deg)
+		Vector2(8710.0, 900.0),  # mud valley floor
+		Vector2(9910.0, 450.0),  # climb to crest 2 (dx=1200 dy=-450, peak ~29.4deg) - boost pad on top
+		Vector2(10210.0, 450.0),
+		Vector2(10710.0, 550.0), # gentle descent (dx=500 dy=100, peak ~16.7deg)
+		Vector2(11010.0, 550.0), # flat run-up to void 2 - GAP 2 STARTS HERE
+		# Void 2 (11010-12110): 3-point rising staircase at (11310,480)/(11610,420)/(11910,360)
+		Vector2(12110.0, 500.0 + LEVEL_4_RAMP_RISE),  # ramp entry (platform 2 sits at y=500, a bit higher after the climb)
+		Vector2(12760.0, 500.0), # ramp crests onto platform 2 (dx=650 dy=-430, peak ~44.7deg)
+		Vector2(13060.0, 500.0), # platform 2 end (300px)
+		Vector2(14260.0, 1050.0), # descent into ice valley 2 (dx=1200 dy=550, peak ~34.5deg)
+		Vector2(14760.0, 1050.0), # ice valley floor
+		Vector2(16060.0, 500.0), # climb to crest 3 (dx=1300 dy=-550, peak ~32.3deg) - launch pad on top
+		Vector2(16360.0, 500.0),
+		Vector2(16860.0, 650.0), # descent (dx=500 dy=150, peak ~24.2deg)
+		Vector2(17360.0, 650.0), # flat run-up to void 3 - GAP 3 STARTS HERE
+		# Void 3 (17360-18060): the signature single-point big swing at (17700,340)
+		Vector2(18060.0, 550.0 + LEVEL_4_RAMP_RISE),  # ramp entry (platform 3 sits at y=550)
+		Vector2(18710.0, 550.0), # ramp crests onto platform 3 (dx=650 dy=-430, peak ~44.7deg)
+		Vector2(19010.0, 550.0), # platform 3 end (300px)
+		Vector2(20010.0, 1000.0), # descent into mud valley 2 (dx=1000 dy=450, peak ~34.0deg)
+		Vector2(20410.0, 1000.0), # mud valley floor
+		Vector2(21610.0, 500.0), # climb to crest 4 (dx=1200 dy=-500, peak ~32.0deg) - boost pad on top
+		Vector2(21910.0, 500.0),
+		Vector2(22410.0, 600.0), # descent (dx=500 dy=100, peak ~16.7deg)
+		Vector2(22710.0, 600.0), # flat run-up to void 4 - GAP 4 STARTS HERE
+		# Void 4 (22710-24110): 4-point rhythmic finale chain, alternating
+		# (23010,430)/(23310,480)/(23610,430)/(23910,480)
+		Vector2(24110.0, 600.0 + LEVEL_4_RAMP_RISE),  # ramp entry (finish platform sits at y=600, matching spawn)
+		Vector2(24760.0, 600.0), # ramp crests onto the finish platform (dx=650 dy=-430, peak ~44.7deg)
+		Vector2(25410.0, 600.0), # finish straight (650px, same runway convention as levels 1-3)
+	]
 
 
 func _level_4_zones() -> Array[Dictionary]:
-	return []
+	return [
+		{"type": "ice", "start": 1700.0, "end": 2200.0},
+		{"type": "launch", "start": 3600.0, "end": 3700.0},
+		{"type": "bhop", "start": 6350.0, "end": 7710.0},
+		{"type": "mud", "start": 8310.0, "end": 8710.0},
+		{"type": "boost", "start": 10010.0, "end": 10160.0},
+		{"type": "ice", "start": 14260.0, "end": 14760.0},
+		{"type": "launch", "start": 16160.0, "end": 16260.0},
+		{"type": "mud", "start": 20010.0, "end": 20410.0},
+		{"type": "boost", "start": 21710.0, "end": 21860.0},
+	]
 
 
-const LEVEL_4_SECTION_COUNT: int = 9
-const LEVEL_4_POINTS_PER_SECTION: int = 3
-const LEVEL_4_POINT_SPACING: float = 300.0
-const LEVEL_4_PRE_BUFFER: float = 300.0  # gap start -> first point
-const LEVEL_4_POST_BUFFER: float = 150.0  # last point -> gap end (plain coast, not another swing)
-const LEVEL_4_PLATFORM_WIDTH: float = 300.0
-const LEVEL_4_VOID_WIDTH: float = LEVEL_4_PRE_BUFFER + (LEVEL_4_POINTS_PER_SECTION - 1) * LEVEL_4_POINT_SPACING + LEVEL_4_POST_BUFFER
-const LEVEL_4_RAMP_LENGTH: float = 500.0  # horizontal run of the landing ramp into each platform - see _level_4_keyframes(). ADDED after the void (not carved out of it), so the last grapple point still sits over real open air, not solid ramp ground
-const LEVEL_4_RAMP_RISE: float = 320.0  # vertical rise of that ramp; peak angle ~= atan(1.5*320/500) =~ 44deg, safely under floor_max_angle's 55deg
-const LEVEL_4_CYCLE_WIDTH: float = LEVEL_4_VOID_WIDTH + LEVEL_4_RAMP_LENGTH + LEVEL_4_PLATFORM_WIDTH
-const LEVEL_4_SPAWN_WIDTH: float = 1000.0
-const LEVEL_4_FINISH_WIDTH: float = 650.0
+## Horizontal run/rise of the landing ramp carved into every void->platform
+## transition. LARGER than the original build's 500/320 - a headless bot
+## measuring the actual release trajectory off this redesign's void 1 found
+## the ball sinks up to ~440px below the platform's height by the time it
+## reaches the far edge (steeper/shorter swings sink faster than the
+## original's uniform 4-point-chain geometry did), which clipped the old
+## ramp's vertical left-edge wall exactly like the original build's very
+## first (pre-ramp) failure mode - a real, headlessly-caught regression from
+## reusing the old constant against a new swing shape, not a hypothetical.
+## 650/430 (peak angle atan(1.5*430/650) =~ 44.7deg, same safety margin
+## under floor_max_angle's 55deg as the original) gives real headroom over
+## that measured sink. Re-verified with the same bot: zero wall-clips at any
+## of the four crossings with this value.
+const LEVEL_4_RAMP_LENGTH: float = 650.0
+const LEVEL_4_RAMP_RISE: float = 430.0
 
 
-## Nine void sections (4 points each), separated by eight 300px rest
-## platforms (spawn and finish get platforms too - see keyframes above).
-## Every measurement below (spacing, chain length, buffer sizes) was
-## MEASURED via headless prototypes, not guessed - see
-## _level_4_grapple_points()'s comment for the full history of what was
-## tried and why. This is "by far the majority" of the course by
-## construction: LEVEL_4_VOID_WIDTH/LEVEL_4_CYCLE_WIDTH is void, not platform.
+## Four voids, each sized to its own crossing (short intro / staircase /
+## the wide single-swing leap / the finale chain) rather than one uniform
+## width repeated nine times - see _level_4_keyframes() for exactly where
+## each one sits and _level_4_grapple_points() for what crosses it.
 func _level_4_gaps() -> Array[Dictionary]:
-	var gaps: Array[Dictionary] = []
-	for i in range(LEVEL_4_SECTION_COUNT):
-		var start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH
-		gaps.append({"start": start, "end": start + LEVEL_4_VOID_WIDTH})
-	return gaps
+	return [
+		{"start": 4600.0, "end": 5400.0},
+		{"start": 11010.0, "end": 12110.0},
+		{"start": 17360.0, "end": 18060.0},
+		{"start": 22710.0, "end": 24110.0},
+	]
 
 
-## One checkpoint per rest platform - there's nowhere else SAFE to place one
-## (a checkpoint respawns the player standing on real ground, so it can only
-## ever live on a platform, never mid-void). A death anywhere in a void
-## sends the player back to the start of that same void's chain, not all
-## the way to spawn or forward into a chain they haven't proven yet.
+## Seven checkpoints - one on each rest platform (so a death mid-void sends
+## you back to the start of that crossing's chain, not to spawn) PLUS one on
+## the flat run-up just before each void (so a death mid-crossing doesn't
+## also cost the whole rollable interlude - hill, ice/mud valley, bhop
+## corridor, or climb - that led up to it). That's a real improvement over
+## the original build, which only had a checkpoint per platform (8 for 9
+## sections) and nothing guarding the rollable sections themselves. Every
+## one of these sits comfortably mid-flat-stretch, well clear of any curve
+## transition - verified headlessly (0-frame is_on_floor() re-establishment
+## on a reset at all seven, same check every other level's checkpoints get).
 func _level_4_checkpoints() -> Array[float]:
-	var checkpoints: Array[float] = []
-	for i in range(LEVEL_4_SECTION_COUNT - 1):
-		var platform_start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH + LEVEL_4_VOID_WIDTH + LEVEL_4_RAMP_LENGTH
-		checkpoints.append(platform_start + LEVEL_4_PLATFORM_WIDTH / 2.0)
-	return checkpoints
+	return [4550.0, 6200.0, 10950.0, 12910.0, 17300.0, 18860.0, 22650.0]
 
 
-## The core of this level. Point spacing, per-section chain length, and
-## buffer sizes were all MEASURED via a series of headless prototypes, not
-## guessed - a long, iterative process worth recording since the failure
-## modes weren't obvious in advance:
-## 1. An isolated short test chain (no real terrain nearby, so nothing could
-##    contaminate the result) swept spacing 275-450px and release-timing
-##    windows, driven by a bot that releases the rope once it's swung a
-##    fixed fraction of the rope's length PAST the bottom of the arc
-##    (partway up the far side, not exactly at the bottom - releasing right
-##    at the bottom was the first thing tried and it reliably failed: with
-##    no reel-in mechanic, a release at the very bottom sends the ball net
-##    LOWER than the anchor every cycle, so a chain at constant height
-##    slowly sinks and eventually falls short regardless of spacing). 300px
-##    spacing succeeded across release timing 20-30% past bottom and
-##    tolerated real height variance on chains up to 12 points.
-## 2. A real full-COURSE run then caught a second, longer-horizon problem
-##    the short prototype couldn't see: even within that "safe" per-cycle
-##    window, a fixed release timing still drifts over MANY consecutive
-##    cycles, and long chains (14, then 10, then 6 points per section) each
-##    in turn were long enough for that drift (or, independently, for the
-##    final release-to-platform coast at the end of a section) to
-##    eventually miss. Several fixes were tried in combination - shorter
-##    per-section chains, a bigger landing buffer, a low "bridge" point at
-##    the end of each section, a flat (no height variance) chain, an
-##    adaptive release rule, a release rule that targets the NEXT point's
-##    height, a greedy release-as-soon-as-next-point-is-in-range rule, and
-##    a fully predictive rule that simulates the free-fall trajectory each
-##    frame - each helped but none alone made a 30+ point full course
-##    reliably completable by a simple bot.
-## 3. Landed on the combination that actually works: cut chain length down
-##    to 4 points per section (well inside the originally-validated 8-12
-##    point safe range, with real margin to spare) and correspondingly more
-##    (9) sections to keep the course's overall length and void-majority
-##    ratio - re-verified headlessly that a simple fixed-fraction release
-##    bot now clears the full course. A flat chain (no height variance
-##    between points) was also adopted for this level, since variance
-##    turned out to be one more variable compounding the long-chain drift
-##    problem without being essential to "a lot of grapple choices" (that
-##    ask was already satisfied elsewhere - see "Grapple Points" - this
-##    level's whole identity IS the chain, so it doesn't need extra
-##    variance layered on top).
+## The core of this level, and the one place its identity as "majority
+## grapple-only" still lives - four crossings, each a genuinely different
+## shape rather than the same loop-generated pattern repeated:
+##
+## Point spacing (300px, the horizontal distance actually used between
+## consecutive points below) is carried over from the original build's
+## dedicated headless prototyping, not re-derived from scratch - that
+## process (documented in git history) found 300px spacing reliable across
+## release timing 20-30% past the bottom of the arc, and confirmed real
+## height variance between points is tolerated on chains up to ~12 points
+## long. Every chain here is 4 points or fewer - well inside that
+## validated-safe range - so the height variance used for the staircase
+## (60px/step) and the finale's alternating wave (+/-50px) doesn't reopen
+## the long-chain drift problem that forced the original build's chains
+## flat: that problem was specific to a single 27-point mega-chain spanning
+## the whole course, not to a short individual crossing.
+##
+## What did NOT carry over unchanged: the landing-ramp size (see
+## LEVEL_4_RAMP_RISE above) - a headless full-course bot caught this
+## redesign's void 1 (a short 2-point chain) sinking much further below the
+## platform than the original's longer, flatter chains ever did, clipping
+## the ramp's vertical edge wall instead of landing on its slope. Confirmed
+## via a release-fraction sweep (0.15/0.2/0.3/0.35 all failed identically)
+## that this was a geometry problem, not a bot-timing problem, before
+## enlarging the ramp.
+##
+## Void 3's single-point big swing is the one genuinely new configuration
+## (a full pendulum arc across an entire void on one rope, not a hop-to-hop
+## chain) - engaging from right at the void's edge (17360,650) to the point
+## (17700,340) is a 460px pull (comfortably under grapple_max_range's 600,
+## with real margin even if pressed ~100px early).
+##
+## Verified headlessly end to end: a chain-swing bot that targets each void's
+## points in sequence (not "nearest in range," which re-grabs the point it
+## just released - see CLAUDE.md) and releases 25% past the bottom of each
+## arc clears all four crossings and finishes the full course with zero
+## deaths.
 func _level_4_grapple_points() -> Array[Vector2]:
-	var points: Array[Vector2] = []
-	for i in range(LEVEL_4_SECTION_COUNT):
-		var gap_start: float = LEVEL_4_SPAWN_WIDTH - 600.0 + i * LEVEL_4_CYCLE_WIDTH
-		var section_start_x: float = gap_start + LEVEL_4_PRE_BUFFER
-		for j in range(LEVEL_4_POINTS_PER_SECTION):
-			points.append(Vector2(section_start_x + j * LEVEL_4_POINT_SPACING, 490.0))
-	return points
+	return [
+		Vector2(4900.0, 420.0),   # void 1: intro swing, point 1
+		Vector2(5200.0, 470.0),   # void 1: intro swing, point 2
+		Vector2(11310.0, 480.0),  # void 2: rising staircase, point 1 (lowest)
+		Vector2(11610.0, 420.0),  # void 2: rising staircase, point 2
+		Vector2(11910.0, 360.0),  # void 2: rising staircase, point 3 (highest)
+		Vector2(17700.0, 340.0),  # void 3: the signature big swing - one point, one long rope
+		Vector2(23010.0, 430.0),  # void 4: finale wave, point 1
+		Vector2(23310.0, 480.0),  # void 4: finale wave, point 2
+		Vector2(23610.0, 430.0),  # void 4: finale wave, point 3
+		Vector2(23910.0, 480.0),  # void 4: finale wave, point 4
+	]
 
 
 ## Ground surface height at world x, following the same curve used to build

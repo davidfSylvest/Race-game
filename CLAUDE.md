@@ -667,79 +667,145 @@ progress"); that design choice is gone now, replaced by an actual save file.
     own numbers are untouched since none of the shared Player.gd/Joystick.gd
     physics logic changed, only new level-3-only data and a strictly-additive
     `Main.gd` generalization.
-- **Level 4, "Grapple Gauntlet"** - the user's explicit ask: a level where
-  "the majority is grapple only, so from 1 grabbed to the next one without
-  anywhere to roll on... by far the majority of the map." A genuinely
-  different KIND of level from 1-3, not just harder terrain: there is no
-  hill content at all. `_level_4_keyframes()` is flat at y=600 for the
-  entire course; every bit of real, rollable ground lives in ten short
-  platforms (spawn, eight rest platforms, finish) that `_build_ground()`
-  leaves standing between nine `gaps` entries - everywhere else is a real
-  hole, exactly like every other gap in this game, just far bigger and far
-  more of the course (~78% void by construction - see
-  `LEVEL_4_VOID_WIDTH`/`LEVEL_4_CYCLE_WIDTH`). Each void section is crossed
-  by chaining 3 grapple points together (27 points total), landing on the
-  next rest platform's checkpoint before diving into the next void.
-  - **Point spacing and chain length were MEASURED, not guessed, via a long
-    sequence of headless prototypes** - see `_level_4_grapple_points()`'s
-    doc comment in Terrain.gd for the full blow-by-blow (spacing sweep,
-    release-timing sweep, several rejected fixes). The short version: an
-    isolated test chain established 300px spacing with release timing
-    20-30% of the rope's length past the bottom of the arc as a reliably
-    completable pattern (real margin, not a knife's edge) for chains up to
-    ~12 points; a real full-COURSE run then needed shorter (3-point)
-    sections to stay safely inside that margin over a much longer 27-point
-    chain.
-  - **The real, hard-won discovery: a full course run kept failing at the
-    very last swing of every section, and it took a proper root-cause trace
-    to find why.** The failure looked like a level-design problem (wrong
-    spacing, wrong timing) but was actually a TERRAIN problem: a rope swing
-    with no reel-in mechanic naturally sinks 250-400px below its own anchor
-    by the time of release (confirmed directly in a headless trace, and
-    confirmed again that a small release-timing fraction only recovers a
-    tiny fraction of that height - a pendulum only truly climbs back near
-    its entry height swinging almost all the way to the far side, not at
-    20-30% past the bottom). Every existing gap in this game has a sheer
-    vertical wall at its edge (fine for a JUMP arcing in from above, which
-    is how every other gap in levels 1-3 is crossed), but a swing release
-    approaches LOW, from underneath that edge - so the ball was slamming
-    into the platform's leading edge like a wall (caught unambiguously in
-    the trace: `velocity.x` snapped from ~460 to exactly `0.0` in a single
-    frame at the platform's edge) and either sticking there or sliding
-    beneath it into the void, never once reaching the top, no matter how
-    the spacing, buffer size, or anchor height were tuned - because none of
-    those addressed the actual cause.
-  - **The fix: a real sloped landing ramp into every platform** (`
-    LEVEL_4_RAMP_LENGTH`/`LEVEL_4_RAMP_RISE`, added via two extra keyframes
-    per platform - `_level_4_keyframes()`), using the exact same smoothstep
-    curve interpolation every other slope in this game already relies on.
-    A low, sunk approach now rolls up the ramp onto the platform instead of
-    crashing into a wall - the same fix a real platformer reaches for when
-    an approach comes in from below a ledge. Only needed on the ENTRY side
-    of each platform; the exit side was never the problem (leaving a
-    platform under normal rolling control is the same well-tested pattern
-    used everywhere else in this game). The ramp is ADDED after the void,
-    not carved out of it, so the actual swing-chain distance and the last
-    grapple point's position over open air are completely unchanged - the
-    fix only changes what's waiting at the far end.
-  - **Verified headlessly, and this time it's a real pass, not a near-miss**:
-    all 8 checkpoints re-establish `is_on_floor()` within 0 frames of a
-    reset. A full-course chain-swing bot using release timing 25%, 30%, and
-    35% (three different values, not one lucky number) all cleared the
-    entire 27-point course with **zero deaths**, in 54.3s/56.6s/59.0s
-    respectively - confirming a real margin exists, not a razor's edge.
-  - **Medal thresholds measured with a 4-policy bot adapted for this
-    level's actual skill expression** - since there's no ground to
-    lean-track in a void, skill here is release-TIMING precision and
-    consistency instead: perfect hits the validated release window exactly
-    every time, decent/randomish add growing timing jitter around it, poor
-    is centered on a genuinely too-early release (the realistic novice
-    mistake this level actually punishes, not just noise) plus jitter.
-    Measured: perfect 54.3s, decent 53.9s, randomish 56.5s (1 death), poor
-    DNF (23 deaths, still retrying at the frame budget) - a believable
-    bronze-miss baseline, same pattern as every other level. Bronze set at
-    randomish's time (3rd-place-of-benchmarks), same rule as levels 1-3.
-    See `Medals.gd` for the numbers (gold 55.0, silver 58.0, bronze 60.0).
+- **Level 4, "Grapple Gauntlet" - REBUILT after the user rejected the
+  original version.** The user's original ask was a level where "the
+  majority is grapple only... by far the majority of the map," which
+  shipped as nine identical loop-generated void/platform/void sections, all
+  flat at y=600, all 3-point chains at the same flat height. The user then
+  gave direct critical feedback: "this might never work as youre doing the
+  level design and its very bad. its alot of repetition and not so much as
+  flow and challenging," followed by an explicit creative brief: "i want
+  levels to be diverse, have various different hills and sloped and jumps
+  and what not? maybe even a loop, who knows. be creative dont just copy
+  paste the same thing again and again" - scoped, when asked, to "Level 4 +
+  touch up 1-3" (this section covers the Level 4 half; levels 1-3's
+  touch-ups are a separate, later effort).
+  - **A true vertical loop is not possible on this engine's terrain.**
+    `height_at(x)` is single-valued - exactly one Y per X, by construction
+    (see the module docstring at the top of Terrain.gd) - the same property
+    every gap/checkpoint/tangent/camera-lookahead query in this file
+    depends on. A loop-back collision shape simply can't be expressed in
+    that representation. The signature single-point "big swing" (below) is
+    the honest substitute: a real airborne pendulum arc with genuine height
+    and a dramatic low point, not a closed loop.
+  - **What actually got built**: the loop-generated 9-section formula is
+    gone entirely. In its place, real rollable terrain (hills, two ice
+    valleys, two mud valleys, a bhop corridor, two launch pads, two boost
+    pads - the same zone types levels 1-3 already use, not new mechanics)
+    fills the space between four hand-placed grapple crossings, and no two
+    crossings are the same shape:
+    1. A short 2-point intro swing right after the opening hill - a gentle
+       first taste, modest height variance between its two points.
+    2. A 3-point "rising staircase" - each point 60px higher than the last,
+       climbing DURING the chain instead of staying flat.
+    3. The signature single-point big swing - one long rope (~460px, well
+       under `grapple_max_range`'s 600 with real margin) engaged right at
+       the edge of a wide void, producing a real pendulum arc rather than a
+       short hop-to-hop chain. This is the closest equivalent to the "maybe
+       even a loop" ask that the terrain representation allows.
+    4. A 4-point rhythmic "wave" finale (alternating +/-50px) - the most
+       familiar/dependable pattern, saved for last as a comfortable close
+       after three different rhythms.
+  - **The landing-ramp fix from the original build carried over unchanged
+    in mechanism, but not in size.** Every void->platform transition still
+    uses a real sloped ramp (added AFTER the void, not carved from it, so
+    the last grapple point of each crossing still sits over open air) - the
+    original discovery that a swing's natural sink without a reel-in
+    mechanic needs a real ramp, not an abrupt platform edge, remains true
+    and is reused as-is. What changed: `LEVEL_4_RAMP_LENGTH`/
+    `LEVEL_4_RAMP_RISE` grew from 500/320 to 650/430 (peak angle
+    atan(1.5*430/650) =~ 44.7deg, same safety margin under
+    `floor_max_angle`'s 55deg as before). A headless bot measuring the
+    actual release trajectory off this redesign's void 1 (a short 2-point
+    chain, a genuinely different shape from the original's uniform 4-point
+    chains) found the ball sinks up to ~440px below platform height by the
+    time it reaches the ramp - more than the original 320px rise could
+    absorb, which clipped the ramp's vertical edge wall exactly like the
+    original build's very first (pre-ramp) failure mode. Confirmed this was
+    a geometry problem and not a bot-timing problem first (a release-timing
+    sweep - 0.15/0.2/0.3/0.35 - failed identically at every value) before
+    enlarging the ramp; re-verified zero wall-clips at all four crossings
+    afterward. Every downstream x-coordinate (interludes, later voids,
+    checkpoints, grapple points, the finish line) was recomputed to absorb
+    the larger ramp length at each of the four crossings in turn - see
+    Terrain.gd's `_level_4_keyframes()` for the exact numbers.
+  - **Verifying this needed a real headless chain-swing bot, and building
+    ONE that actually worked took several wrong turns worth recording**,
+    since a naive approach silently produces misleading results rather than
+    an obvious crash:
+    1. First bot design: after releasing a point, re-call `try_grapple()`
+       ("nearest point in range") to get the next one. This re-grabbed the
+       SAME point it had just released, since it was still the nearest one
+       in range while the ball was still near it mid-swing - the exact same
+       failure mode already documented for the original build's benchmark
+       bot. Fixed by tracking an explicit sequence index into
+       `terrain.grapple_points` (grab point[chain_index], never "nearest"),
+       plus a short cooldown after release before attempting another grab.
+    2. Second bot design: release once "recovered `release_fraction` of the
+       swing's drop-since-grab, while `velocity.y < 0`." This worked for
+       void 1 but got a swing on void 2 (a much higher-speed entry, ~1026
+       px/s) stuck oscillating forever, re-triggering `try_grapple()`
+       endlessly without ever releasing far enough to progress. Root cause,
+       found via a full per-frame trace: the rope's position-correction
+       step injects real frame-to-frame `velocity.y` SIGN JITTER right near
+       the bottom of a fast swing (confirmed directly: sign flips every 1-2
+       frames while net motion is clearly still descending), so a
+       single-frame `velocity.y < 0` check is fundamentally unreliable
+       there, not just imprecise.
+    3. Third attempt: drop the velocity check, release purely on position -
+       "recovered `release_fraction` of the ROPE'S OWN LENGTH from the
+       lowest point reached." More robust against the jitter, but this
+       broke void 1: its shorter, steeper-entry swing simply never recovers
+       that large a fraction of its own rope length within one arc, so the
+       bot got stuck waiting for a threshold that specific swing shape
+       could never reach, and Player.gd's own `grapple_max_duration` (4.0s)
+       safety timeout ended up doing the release instead - at an
+       uncontrolled, arbitrary point in the oscillation.
+    4. Fourth attempt: combine both signals (recovered-from-swing-start-drop
+       AND a DEBOUNCED ascending streak of >=3 consecutive `velocity.y < 0`
+       frames, not just one). This fixed void 1 again but still failed
+       void 2 the same way - the debounce reduced the jitter problem but
+       didn't eliminate it for a high-speed entry.
+    5. **What actually worked**: abandon threshold detection entirely in
+       favor of a fixed hold-duration per grab (release N physics frames
+       after engaging, no velocity/position checks at all) - simple and
+       immune to the jitter problem by construction. ~20 frames works for
+       every chained hop (voids 1/2/4 - short ropes, engaged already low in
+       their fall from momentum carried into the void). Void 3's single big
+       swing (engaged much higher/earlier in its arc, since it's a
+       deliberately long rope grabbed right at the void's edge) needs
+       longer - confirmed via trace that 20 frames released it while STILL
+       DESCENDING (`velocity.y` positive), sending it on a bad trajectory;
+       ~35-55 frames reliably releases it on the way back up instead.
+    6. One more real bug caught along the way, unrelated to release timing:
+       the bot's grab condition originally fired on `is_gap_at(x) or not
+       on_floor` - the `not on_floor` half also fires on an ORDINARY brief
+       cresting bounce over solid ground (the same ballistic-separation
+       effect documented in this file's `floor_snap_length` history),
+       letting the bot accidentally engage a grapple point from mid-air
+       over regular terrain, once at rope_len=593 - dangerously close to
+       `grapple_max_range`'s 600. Fixed by gating grab attempts on
+       `terrain.is_gap_at(x)` alone; swing continuation still runs
+       regardless of `on_floor`.
+  - **Verified headlessly with the working bot**: all 7 checkpoints
+    re-establish `is_on_floor()` within 0 frames of a reset. A sweep of
+    several nearby hold-duration combinations (not one lucky value) all
+    cleared the full course with **zero deaths** - confirming real margin,
+    not a razor's edge.
+  - **Medal thresholds re-measured from scratch**, since the course layout,
+    void count/shapes, and length all changed from the original build.
+    Several timing combinations in the reasonable range (~15-22 frames per
+    hop, ~32-48 frames on the big swing) all finished cleanly within a
+    tight 41.4-42.65s band - on this rebuilt layout, release timing mostly
+    determines which point in a void's chain you end up needing next,
+    rather than overall pace, so the finishing band is naturally narrow.
+    Timings further outside that window reliably DNF (repeated deaths at
+    one of the four crossings) - a believable bronze-miss baseline, same
+    pattern as every other level. Gold/silver sit at/above the observed
+    finishing band with a small buffer; bronze sits with a generous buffer
+    above the whole band, since a human won't reproduce bot-precise timing
+    on all 10 grapple points every run. See `Medals.gd` for the numbers
+    (gold 42.0, silver 44.5, bronze 48.0).
 - Levels 5 through 10 don't exist yet and are the next planned increments
   toward the user's 10-level ask, each needing the same treatment levels
   1-4 got (hand-tuned layout, headlessly-verified physics, measured medal
