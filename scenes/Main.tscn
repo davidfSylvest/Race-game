@@ -157,6 +157,22 @@ grow_vertical = 0
 theme_override_font_sizes/font_size = 28
 text = "JUMP"
 
+[node name="GrappleButton" type="Button" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -380.0
+offset_top = -200.0
+offset_right = -220.0
+offset_bottom = -40.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_font_sizes/font_size = 24
+text = "HOOK"
+
 [node name="LevelButton" type="Button" parent="UI"]
 unique_name_in_owner = true
 anchors_preset = 1

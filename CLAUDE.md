@@ -57,6 +57,20 @@ the explicit Restart button, harsher landing punishment) and why it's still
 scoped tightly to that ask (two gaps total, one per level, not a redesign
 of the whole risk/reward system).
 
+Newest exception: the user explicitly asked to "add a grapple effect" and
+then "adjust the level designs so they match the abilit[y]." A real rope-
+swing mechanic now exists (a genuinely new movement tool, not a variant of
+lean/jump) - see "Grapple" under Movement design for the physics and
+"Grapple Points" under Architecture for how it's wired into the world and
+why it was layered ADDITIVELY onto every level rather than replacing any
+already-tuned content (the gap widths/checkpoints/medal times documented
+under "Persistence, Ghosts, and Level Unlocks" were all measured against a
+jump-only bot - turning a gap into a mandatory grapple crossing would have
+invalidated every one of those numbers). This is scoped to exactly one new
+ability plus the anchor points needed to use it meaningfully - not a general
+license for more abilities, a double-jump, wall-running, etc. unless asked
+for that specific thing again.
+
 ## Godot version: 4.7.1 — always, no exceptions
 
 **Always use Godot 4.7.1-stable.** Not "latest," not 4.3, not whatever a
@@ -659,6 +673,55 @@ progress"); that design choice is gone now, replaced by an actual save file.
   invented wholesale in one pass, the same way each of levels 1/2/3 were
   built as separate efforts rather than all at once.
 
+### Grapple Points
+
+The user's explicit ask: "add a grapple effect and then adjust the level
+designs so they match the abilit[y]." See "Grapple" under Movement design
+below for the swing physics itself (Player.gd) - this section is the
+world/terrain side of it: where the anchor points live and how they're
+drawn.
+
+- **`Terrain.grapple_points: Array[Vector2]`** (new) - world positions a
+  grapple can attach to. A plain array of points, not a `{start, end}` zone
+  dict like ice/mud/boost/etc., since an attach point is a single location,
+  not a range - populated per-level in `_configure_level()` the same way
+  gaps/checkpoints are, via `_level_N_grapple_points()` functions.
+- **Placement is deliberately additive, not a replacement for the existing
+  gap-jump challenge.** Every gap-jump width/checkpoint position/medal time
+  documented under "Persistence, Ghosts, and Level Unlocks" above was
+  measured against a jump-only 4-policy bot - if a gap became a *mandatory*
+  grapple crossing, every one of those numbers would need re-measuring, and
+  a whole new "poor" baseline would need establishing for a mechanic that
+  didn't exist when bronze was set. Instead, one grapple point floats above
+  each of the game's four gaps (one on level 1, one on level 2, two on level
+  3), positioned 220px above the flat run's height so it's a genuine swing
+  rather than a trivial hop, and comfortably within `Player.grapple_max_range`
+  (600px) from anywhere along that flat approach - giving a player who's
+  unlocked the ability a faster/flashier alternative to jumping, without
+  changing what jumping alone already reliably accomplishes. The existing
+  jump-only benchmark bots (and their medal times) are untouched by
+  construction - they never call `try_grapple()`, and confirmed headlessly
+  to still finish in exactly the same time as before this feature existed
+  (level 3's perfect-policy time matched to the millisecond: 39.20s both
+  before and after).
+- **`TerrainRenderer._add_grapple_markers()`** draws a small ring + center
+  dot at each point (vivid cyan, `grapple_point_color` - distinct from every
+  zone accent color, and matching `Player.grapple_rope_color` so the rope
+  and the point it's attached to visually read as the same system) plus a
+  thin translucent guide line straight down to the ground, so a point
+  floating in open air still reads as anchored to the course rather than
+  randomly placed - same visual language the rim highlight already uses for
+  the ground curve, just for a point instead of a line. Rebuilt alongside
+  every other visual in `_rebuild()` (including on a palette
+  `refresh_colors()` call), so it can never desync from the rest of the
+  ground fill.
+- No aiming reticle or second stick - `Player.try_grapple()` just grabs the
+  *nearest* point in `terrain.grapple_points` within `grapple_max_range` of
+  the ball's current position, matching this project's low-machinery stance
+  on UI (there's nowhere to add a second input without crowding the existing
+  joystick/Jump/Restart/Level button layout, and one point in easy reach at
+  a time is all any level currently has anyway).
+
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)
 
@@ -1156,6 +1219,81 @@ Caused to two independent bugs, not one:
   needs a real distinction between a jump-induced launch and a
   terrain-induced one in the landing/launch-quality system, not another
   constant tweak - flagged here rather than guessed at.
+
+### Grapple
+
+The user's explicit ask: "add a grapple effect." A genuinely new movement
+tool (`Player.try_grapple()`/`release_grapple()`), not a reskin of lean or
+jump - see "Grapple Points" under Architecture above for where the anchor
+points live and how the level designs were adjusted to actually use it.
+
+- **A real rope-swing constraint, not a fixed-speed pull-to-point.**
+  Pressing the GRAPPLE button (`%GrappleButton`, bottom-right, left of JUMP)
+  attaches a rope to the nearest point in `terrain.grapple_points` within
+  `grapple_max_range` (600px) of the ball - the rope's length is fixed at
+  whatever the actual distance was at that instant, exactly like a real
+  grapple/ninja-rope. Every physics frame after that, if the ball is at or
+  past that length AND still moving further away, the OUTWARD radial
+  velocity component (the part of velocity pointing away from the anchor)
+  gets zeroed - the ball can still move closer (slack, unconstrained) or
+  swing tangentially (also unconstrained), it just can never move further
+  from the anchor than the rope allows. Combined with gravity (already
+  applied unconditionally every frame), this is the standard "circle
+  constraint" trick games use for pendulum swings: zeroing the radial
+  velocity component every frame produces a real swinging arc without ever
+  solving the pendulum equation directly. A small direct position
+  correction on top (snapping back onto the rope's radius whenever a
+  frame's velocity integration overshoots it) keeps the rope visually taut
+  instead of slowly stretching - verified headlessly that max observed
+  distance during a multi-second swing stayed within ~1.5% of the nominal
+  rope length on every level, not growing over time.
+- **Deliberately no reel-in in this first pass.** A pure swing (no "hold to
+  pull closer") is simpler to reason about, already gives real traversal
+  value (an alternative to jumping across a gap, or a shortcut over a
+  valley), and avoids adding a second tunable "how fast does reeling feel
+  right" system on top of an already-large tuning surface. Flagged here
+  rather than guessed at - reel-in could be a real follow-up ability
+  upgrade if asked for.
+- **The ground-acceleration block is suppressed while grappling, air control
+  isn't.** The ground-accel block doesn't check `on_floor` at all (see the
+  air-control comment further down for why - it's deliberate, and already
+  established behavior for ordinary jumps too), so left unguarded during a
+  swing it would keep shoving velocity toward a horizontal ceiling on top of
+  the rope constraint, fighting the swing instead of feeling like one.
+  Air control (the same system that already lets a player steer during an
+  ordinary jump) stays active during a swing, so leaning still gives real
+  aiming agency mid-swing without a second, competing forward-thrust system
+  layered on top of the pendulum physics.
+- **Auto-release needed a real fix, not just an obvious guard.** The first
+  version released the instant `is_on_floor()` was true, meant to detach
+  cleanly on landing - but a headless test caught it releasing after a
+  single physics frame every time, because the check didn't distinguish
+  "just landed after swinging" from "was already standing on the ground the
+  moment you pressed the button" (the latter is allowed on purpose - a
+  player should be able to tether up a cliff face from a standing start).
+  Fixed with `_grapple_left_ground`, a flag only set once the player has
+  actually been airborne at least one frame since engaging - auto-release
+  on landing now only fires after that, closing the false-positive without
+  blocking the from-the-ground use case. A `grapple_max_duration` (4.0s)
+  safety timeout still applies regardless, for the same reason
+  `FALL_RECOVERY_MARGIN` exists elsewhere - a missed release input (or a
+  genuinely stable-feeling orbit) shouldn't be able to strand a run forever.
+- **Verified headlessly on all three levels**: engaging at realistic
+  approach speed/position produces a stable multi-second swing with no NaN
+  and no runaway distance growth, releasing (button-up) mid-swing correctly
+  detaches with whatever velocity the swing built up, pressing the button
+  with nothing in range is a clean no-op, and - most importantly - a
+  no-grapple 4-policy-style regression run (the same tangent-tracking
+  "perfect" bot used for every level's medal benchmark, which never calls
+  `try_grapple()`) finishes in EXACTLY the same time as before this feature
+  existed on every level (level 3: 39.20s both before and after, to the
+  millisecond) - confirming the new constraint code, which only ever runs
+  inside `if _grappling:`, can't have silently perturbed ordinary play.
+- **Visual**: a bright cyan `Line2D` rope (`Player._make_grapple_line()`,
+  `top_level = true` so it stays in world space like TrailEffect) drawn from
+  the ball's actual visual center - `position - (0, ball_radius)`, the same
+  ground-contact-vs-visual-center distinction Ghost.gd's own height fix
+  documents above - to the anchor point, visible only while attached.
 
 ## Working style expected on this project
 

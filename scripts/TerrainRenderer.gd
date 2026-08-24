@@ -21,6 +21,10 @@ extends Node2D
 @export var launch_pad_accent_color: Color = Color(0.3, 0.95, 0.5, 1) # vivid spring green marking a launch pad, distinct from every other zone color
 @export var flow_accent_color: Color = Color(0.55, 0.35, 0.85, 1) # soft violet marking level 2's sustained rolling-hills gauntlet - purely a "you're in the zone" callout, no gameplay effect of its own
 
+@export_group("Grapple Points")
+@export var grapple_point_color: Color = Color(0.25, 0.95, 0.95, 1) # vivid cyan, distinct from every zone accent above - matches Player.gd's grapple_rope_color so it's obvious the rope and the point it's attached to are the same thing
+@export var grapple_point_radius: float = 14.0
+
 @export_group("Ground Shading")
 @export var top_edge_lighten: float = 0.22 # how much brighter the top (sunlit) curve vertices are than the flat zone color - baked as Polygon2D per-vertex colors, no shader needed, so it's cheap on mobile and works with every zone color automatically
 @export var bottom_edge_darken: float = 0.4 # how much darker the bottom (shadowed/buried) vertices are than the flat zone color
@@ -102,6 +106,48 @@ func _rebuild() -> void:
 		# the fill does - one Line2D per contiguous solid stretch instead of
 		# a single line for the whole course.
 		_add_rim_segment(top_points, seg_start, seg_end)
+
+	_add_grapple_markers()
+
+
+## A ring + center dot at each grapple point, plus a thin translucent guide
+## line down to the ground so a point floating in open air still reads as
+## anchored to the course rather than randomly placed - the same visual
+## language as the ground-fill's rim highlight, just for a point instead of
+## a curve. Rebuilt alongside everything else in _rebuild() (including on a
+## palette refresh_colors() call), so it never desyncs from the zone fill.
+func _add_grapple_markers() -> void:
+	if not ("grapple_points" in _terrain):
+		return
+	for point in _terrain.grapple_points:
+		var ring := Line2D.new()
+		var ring_points := PackedVector2Array()
+		var segments: int = 20
+		for i in range(segments):
+			var angle: float = TAU * i / segments
+			ring_points.append(point + Vector2(cos(angle), sin(angle)) * grapple_point_radius)
+		ring.points = ring_points
+		ring.closed = true
+		ring.width = 3.0
+		ring.default_color = grapple_point_color
+		_body.add_child(ring)
+
+		var dot := Polygon2D.new()
+		var dot_points := PackedVector2Array()
+		for i in range(12):
+			var angle: float = TAU * i / 12
+			dot_points.append(point + Vector2(cos(angle), sin(angle)) * (grapple_point_radius * 0.35))
+		dot.polygon = dot_points
+		dot.color = grapple_point_color
+		_body.add_child(dot)
+
+		var ground_y: float = _terrain.height_at(point.x)
+		if ground_y > point.y:
+			var pole := Line2D.new()
+			pole.points = PackedVector2Array([point, Vector2(point.x, ground_y)])
+			pole.width = 2.0
+			pole.default_color = Color(grapple_point_color.r, grapple_point_color.g, grapple_point_color.b, 0.35)
+			_body.add_child(pole)
 
 
 func _zone_color(type: String) -> Color:

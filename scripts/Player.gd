@@ -106,6 +106,20 @@ extends CharacterBody2D
 @export var glow_energy: float = 1.1
 @export var glow_texture_scale: float = 3.2 # multiple of ball_radius the soft light texture spans
 
+@export_group("Grapple")
+# The user's explicit ask: "add a grapple effect." A real pendulum-swing rope,
+# not a fixed-speed pull-to-point - engaging attaches a rope at the CURRENT
+# distance to the target and physically constrains the ball from moving
+# further away than that (see the constraint block in _physics_process),
+# so gravity + existing velocity do the rest, the same way a Worms ninja-rope
+# or a Quake grapple hook swings. Deliberately no reel-in in this first pass -
+# a pure swing is simpler to reason about and already gives real traversal
+# value (an alternative to jumping across a gap, or a shortcut over a valley);
+# reel-in can be added later as a further ability upgrade if asked for.
+@export var grapple_max_range: float = 600.0 # px - how far a grapple point can be from the ball and still be grabbed on press
+@export var grapple_max_duration: float = 4.0 # seconds - safety auto-release so a missed release input (or a genuinely stable orbit) can't leave the player stuck swinging forever
+@export var grapple_rope_color: Color = Color(0.25, 0.95, 0.95, 0.9) # matches TerrainRenderer's grapple_point_color so it's visually obvious which anchor you're attached to
+
 @onready var joystick: Control = %Joystick
 @onready var visual: Node2D = $Visual
 @onready var terrain: Node2D = %Terrain
@@ -113,6 +127,7 @@ extends CharacterBody2D
 @onready var _shading: Node2D = _make_shading()
 @onready var _glow: PointLight2D = _make_glow()
 @onready var _trail: Line2D = _make_trail()
+@onready var _grapple_line: Line2D = _make_grapple_line()
 
 var current_speed: float = 0.0
 var flow: float = 0.0 # 0..1, see "Flow Meter" above
@@ -133,6 +148,12 @@ var _jump_buffer_remaining: float = 0.0 # seconds left in which a landing should
 var _was_in_boost_zone: bool = false # edge-detects entering a boost pad, same idea as _was_on_floor for landings
 var _was_in_launch_pad_zone: bool = false # ditto, for the launch pad
 var _roll_angle: float = 0.0 # accumulated visual spin, radians - see ball_radius above
+
+var _grappling: bool = false
+var _grapple_anchor: Vector2 = Vector2.ZERO
+var _grapple_length: float = 0.0 # px - the rope's fixed length, set once at engage time to whatever the actual distance was then
+var _grapple_time: float = 0.0 # seconds since engaging - see grapple_max_duration above
+var _grapple_left_ground: bool = false # true once actually airborne since engaging - guards the auto-release-on-landing check from firing on the very engage frame if grapple was grabbed while still grounded
 
 
 func _ready() -> void:
@@ -216,6 +237,21 @@ func _make_trail() -> Line2D:
 	var trail: Line2D = preload("res://scripts/TrailEffect.gd").new()
 	add_child(trail)
 	return trail
+
+
+## Standalone rope visual - a world-space Line2D (top_level, like TrailEffect)
+## from the ball's visual center to the current grapple anchor, hidden except
+## while actually attached. Kept as a plain owned node rather than its own
+## script/file since it's just two points updated each frame, nowhere near
+## TrailEffect's sampling-history complexity.
+func _make_grapple_line() -> Line2D:
+	var line := Line2D.new()
+	line.width = 3.0
+	line.default_color = grapple_rope_color
+	line.top_level = true
+	line.visible = false
+	add_child(line)
+	return line
 
 
 func _circle_polygon(radius: float, segments: int) -> PackedVector2Array:
@@ -313,7 +349,15 @@ func _physics_process(delta: float) -> void:
 	# own below the cap.
 	var combined_multiplier: float = min(slope_multiplier * flow_speed_multiplier, max_combined_ceiling_multiplier)
 
-	if directional_magnitude > 0.0:
+	# Suppressed while grappling: the ground-accel block below doesn't check
+	# on_floor at all (see the air-control comment further down for why it
+	# runs airborne too, by design), so left unguarded it would keep shoving
+	# velocity toward a horizontal (tangent defaults to RIGHT) ceiling on top
+	# of the swing constraint below - fighting the rope instead of feeling
+	# like one. Air control (further down) stays active during a swing, so
+	# leaning still gives real steering agency, just without the "ground"
+	# ceiling push layered on top of it.
+	if directional_magnitude > 0.0 and not _grappling:
 		var accel_force: float = directional_magnitude * max_accel_constant * flow_accel_multiplier
 		var speed_ratio: float = pow(directional_magnitude, speed_exponent)
 		var max_speed_this_frame: float = max(speed_ratio * top_speed_constant * combined_multiplier, min_ceiling_with_any_lean)
@@ -389,6 +433,42 @@ func _physics_process(delta: float) -> void:
 	if on_floor:
 		var slope_assist: float = gravity_slope_assist_downhill if tangent.y > 0.0 else gravity_slope_assist_uphill
 		velocity += tangent * (tangent.y * gravity * slope_assist * delta)
+
+	# Grapple swing: a real rope constraint, not a fixed pull-to-point. The
+	# rope's length was fixed at whatever the distance was at engage time
+	# (see try_grapple()); every frame after that, if the ball is at or past
+	# that length AND still moving further away, the OUTWARD radial velocity
+	# component gets zeroed - the ball can move closer (slack, unconstrained)
+	# or swing tangentially (unconstrained), but never move further from the
+	# anchor than the rope allows. With gravity already applied above, this
+	# is the standard "circle constraint" pendulum trick: zeroing the radial
+	# component every frame naturally produces a swinging arc without ever
+	# solving the pendulum equation directly. A direct position correction
+	# on top guards against the rope visibly stretching frame-to-frame from
+	# the small overshoot velocity integration alone would otherwise leave.
+	if _grappling:
+		var to_anchor: Vector2 = _grapple_anchor - global_position
+		var distance: float = to_anchor.length()
+		if distance > 0.001:
+			var dir_to_anchor: Vector2 = to_anchor / distance
+			var radial_speed: float = velocity.dot(dir_to_anchor) # positive = closing in, negative = moving away
+			if distance >= _grapple_length and radial_speed < 0.0:
+				velocity -= dir_to_anchor * radial_speed
+			if distance > _grapple_length:
+				global_position = _grapple_anchor - dir_to_anchor * _grapple_length
+		_grapple_time += delta
+		# Auto-release once the swing brings the player back onto solid
+		# ground - but only after it has actually left the ground at least
+		# once since engaging. Without _grapple_left_ground, engaging while
+		# still grounded (e.g. tethering up a cliff face from a standing
+		# start) would read on_floor as already true on the very same frame
+		# and instantly release before the rope ever got a chance to pull -
+		# found via a headless test that showed the grapple auto-releasing
+		# after a single physics frame every time.
+		if not on_floor:
+			_grapple_left_ground = true
+		if (on_floor and _grapple_left_ground) or _grapple_time >= grapple_max_duration:
+			release_grapple()
 
 	# Friction bleeds ground-speed (the tangential component) every frame,
 	# lean or no lean; it never touches the perpendicular/airborne component.
@@ -539,6 +619,43 @@ func _do_jump() -> void:
 	_jump_cooldown_remaining = jump_cooldown
 
 
+## Public entry point for a grapple input (button press). Grabs the nearest
+## point in terrain.grapple_points within grapple_max_range, if any - no
+## aiming reticle, just "nearest reachable anchor," matching this project's
+## no-extra-UI-complexity stance (there's no second stick to aim one with).
+## A no-op if already attached (re-pressing doesn't re-target mid-swing) or
+## if nothing is in range.
+func try_grapple() -> void:
+	if _grappling:
+		return
+	if not terrain or not ("grapple_points" in terrain):
+		return
+	var best_point: Vector2 = Vector2.ZERO
+	var best_dist: float = grapple_max_range
+	var found: bool = false
+	for point in terrain.grapple_points:
+		var d: float = global_position.distance_to(point)
+		if d <= best_dist:
+			best_dist = d
+			best_point = point
+			found = true
+	if not found:
+		return
+	_grappling = true
+	_grapple_anchor = best_point
+	_grapple_length = best_dist
+	_grapple_time = 0.0
+	_grapple_left_ground = not is_on_floor()
+
+
+## Detaches from the current grapple point - called on the GRAPPLE button's
+## release (hold-to-swing, let go to fly off with whatever velocity the swing
+## built up, Bionic-Commando/Spiderman-style), or automatically on landing or
+## after grapple_max_duration (see the constraint block in _physics_process).
+func release_grapple() -> void:
+	_grappling = false
+
+
 ## Resets position/velocity/state for an in-game restart (no scene reload).
 func reset(spawn_position: Vector2) -> void:
 	global_position = spawn_position
@@ -574,6 +691,11 @@ func reset(spawn_position: Vector2) -> void:
 	_landing_squash = 0.0
 	_launch_stretch = 0.0
 	_roll_angle = 0.0
+	_grappling = false
+	_grapple_time = 0.0
+	_grapple_left_ground = false
+	if _grapple_line:
+		_grapple_line.visible = false
 	if visual:
 		visual.rotation = 0.0
 		visual.scale.y = 1.0
@@ -622,3 +744,12 @@ func _update_visual() -> void:
 
 	if _trail:
 		_trail.update(global_position, current_speed)
+
+	# Rope drawn from the ball's actual visual center (position - (0, radius),
+	# same convention Ghost.gd's height fix uses - see CLAUDE.md) rather than
+	# the CharacterBody2D's ground-contact origin, so it visibly starts at the
+	# ball itself instead of appearing to originate from the ground beneath it.
+	if _grapple_line:
+		_grapple_line.visible = _grappling
+		if _grappling:
+			_grapple_line.points = PackedVector2Array([global_position + Vector2(0, -ball_radius), _grapple_anchor])

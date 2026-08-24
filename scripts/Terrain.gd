@@ -56,6 +56,19 @@ var gaps: Array[Dictionary] = []
 ## the way back to spawn either. Populated per-level in _configure_level().
 var checkpoints: Array[float] = []
 
+## World positions of grapple anchor points - the user's explicit ask to "add
+## a grapple effect" and have the level designs match it. A plain
+## Array[Vector2] (not a {start,end} zone dict) since a grapple point is a
+## single attach location, not a range. Deliberately placed floating above
+## each existing gap rather than replacing the jump requirement there: the
+## gap-jump distances/checkpoints/medal times were all measured and tuned
+## against a jump-only bot (see Medals.gd), so turning a gap into a mandatory
+## grapple crossing would invalidate all of that. Instead the grapple is an
+## optional, faster/flashier alternative technique layered on top - see
+## Player.gd's "Grapple" section for the swing physics itself. Populated per-
+## level in _configure_level().
+var grapple_points: Array[Vector2] = []
+
 ## (x, y) control points, world px, Y+ is down. Flat runs happen wherever
 ## consecutive points share the same y; everything else curves between them.
 ## Populated per-level in _configure_level().
@@ -84,16 +97,19 @@ func _configure_level() -> void:
 		zones = _level_3_zones()
 		gaps = _level_3_gaps()
 		checkpoints = _level_3_checkpoints()
+		grapple_points = _level_3_grapple_points()
 	elif level == 2:
 		keyframes = _level_2_keyframes()
 		zones = _level_2_zones()
 		gaps = _level_2_gaps()
 		checkpoints = _level_2_checkpoints()
+		grapple_points = _level_2_grapple_points()
 	else:
 		keyframes = _level_1_keyframes()
 		zones = _level_1_zones()
 		gaps = _level_1_gaps()
 		checkpoints = _level_1_checkpoints()
+		grapple_points = _level_1_grapple_points()
 
 
 func _level_1_keyframes() -> Array[Vector2]:
@@ -193,6 +209,14 @@ func _level_1_gaps() -> Array[Dictionary]:
 ## thing that killed you), plus one past the hardest remaining section.
 func _level_1_checkpoints() -> Array[float]:
 	return [1950.0, 5900.0, 8650.0]
+
+
+## Floats above the level's one gap (5980-6280, flat crest-2 top is
+## 700 in height) - 220px up so it's a genuine swing, not a trivial hop, and
+## comfortably inside Player.grapple_max_range from anywhere along the
+## 5900-6300 flat approach.
+func _level_1_grapple_points() -> Array[Vector2]:
+	return [Vector2(6130.0, 480.0)]
 
 
 ## Level 2: roughly 2x level 1's length, built around one long uninterrupted
@@ -316,6 +340,12 @@ func _level_2_checkpoints() -> Array[float]:
 	return [2150.0, 6850.0, 15550.0, 17750.0]
 
 
+## Floats above level 2's one gap (18000-18300, ~700-720 in height there) -
+## same 220px-up placement rule as level 1's point.
+func _level_2_grapple_points() -> Array[Vector2]:
+	return [Vector2(18150.0, 480.0)]
+
+
 ## Level 3: harder and somewhat longer than level 2 (course_end_x ~23800 vs
 ## ~19300), continuing the escalation toward the user's 10-level goal. Same
 ## proven building blocks as levels 1/2, reused rather than reinvented:
@@ -430,6 +460,13 @@ func _level_3_gaps() -> Array[Dictionary]:
 
 func _level_3_checkpoints() -> Array[float]:
 	return [2250.0, 5750.0, 7200.0, 8850.0, 13650.0, 17850.0, 21750.0]
+
+
+## Floats above each of level 3's two gaps, same 220px-up rule as levels 1/2:
+## gap 1 (9000-9300, flat run at height 450) and gap 2 (21900-22200, flat run
+## at height 750).
+func _level_3_grapple_points() -> Array[Vector2]:
+	return [Vector2(9150.0, 230.0), Vector2(22050.0, 530.0)]
 
 
 ## Ground surface height at world x, following the same curve used to build

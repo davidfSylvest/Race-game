@@ -15,6 +15,7 @@ extends Node2D
 @onready var chain_label: Label = %ChainLabel
 @onready var restart_button: Button = %RestartButton
 @onready var jump_button: Button = %JumpButton
+@onready var grapple_button: Button = %GrappleButton
 @onready var level_button: Button = %LevelButton
 @onready var camera: Camera2D = player.get_node("Camera2D")
 @onready var _event_label: Label = _make_event_label()
@@ -148,6 +149,14 @@ func _ready() -> void:
 	# touch-down rather than after release, so a jump tap registers as
 	# responsively as the joystick's own direct touch handling.
 	jump_button.button_down.connect(player.jump)
+	# Hold-to-swing, release-to-let-go (Bionic-Commando/Spiderman-style): press
+	# grabs the nearest in-range grapple point, release detaches with whatever
+	# velocity the swing built up. button_down/button_up (not .pressed) for the
+	# same touch-responsiveness reason as JumpButton above - and here it's not
+	# just responsiveness, button_up is the actual detach signal, so a
+	# .pressed-only wiring couldn't express "let go" at all.
+	grapple_button.button_down.connect(player.try_grapple)
+	grapple_button.button_up.connect(player.release_grapple)
 	# Not a menu screen - just a HUD button, same category as Restart/Jump,
 	# that swaps to the other level's scene entirely (fresh Player/Terrain/
 	# Main, no shared state) rather than trying to reconfigure Terrain live.
