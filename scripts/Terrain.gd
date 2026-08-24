@@ -79,7 +79,12 @@ func _ready() -> void:
 ## means a fix to the shared logic below can never accidentally apply to
 ## only one level.
 func _configure_level() -> void:
-	if level == 2:
+	if level == 3:
+		keyframes = _level_3_keyframes()
+		zones = _level_3_zones()
+		gaps = _level_3_gaps()
+		checkpoints = _level_3_checkpoints()
+	elif level == 2:
 		keyframes = _level_2_keyframes()
 		zones = _level_2_zones()
 		gaps = _level_2_gaps()
@@ -309,6 +314,122 @@ func _level_2_checkpoints() -> Array[float]:
 	# player who's already grounded through it). 17750 sits cleanly mid-
 	# descent, confirmed to re-establish on_floor within 0 frames of a reset.
 	return [2150.0, 6850.0, 15550.0, 17750.0]
+
+
+## Level 3: harder and somewhat longer than level 2 (course_end_x ~23800 vs
+## ~19300), continuing the escalation toward the user's 10-level goal. Same
+## proven building blocks as levels 1/2, reused rather than reinvented:
+## - Two bhop corridors, both harder than their level-2 equivalents (corridor
+##   1 here matches level 2 corridor 2's ~47deg peak instead of level 2
+##   corridor 1's gentler ~37deg; corridor 2 here is the same ~47deg peak but
+##   with twice as many cycles, the longest bhop stretch in the game so far).
+## - A LONGER flow gauntlet (10100-17800, 7700px) than level 2's (6300px),
+##   for more sustained time to hold Flow at its cap - same ~28-32deg gentle
+##   peak angles already verified safe for uninterrupted grounded contact.
+## - TWO gaps instead of level 2's one (the escalation the user explicitly
+##   asked for: "more challenging the greater the number"), both the same
+##   300px width already verified to require a genuine jump rather than
+##   being crossable on momentum alone (see the level-2 gap comment for why
+##   200px turned out trivial).
+func _level_3_keyframes() -> Array[Vector2]:
+	return [
+		Vector2(-600, 600),   # runway behind spawn, same as levels 1/2
+		Vector2(500, 600),    # end of flat start
+		Vector2(1700, 1200),  # bottom of hill 1's downhill (dx=1200 dy=600, peak ~37deg)
+		Vector2(2200, 1200),  # valley 1 floor - ice zone
+		Vector2(3500, 500),   # crest 1 (dx=1300 dy=-700, peak ~39deg)
+		Vector2(3800, 500),   # flat top of crest 1 - launch pad
+		Vector2(4500, 850),   # descent begins into bhop corridor 1 (dx=700 dy=350, peak ~37deg)
+		# Bhop corridor 1: dx=150 dy=110, peak ~48deg - steeper than EITHER of
+		# level 2's corridors, since level 3's first bump section should
+		# already read as harder than level 2's hardest.
+		Vector2(4650, 960),
+		Vector2(4800, 850),
+		Vector2(4950, 960),
+		Vector2(5100, 850),
+		Vector2(5250, 960),
+		Vector2(5400, 850),
+		Vector2(5550, 960),
+		Vector2(5700, 850),
+		Vector2(6200, 1200), # settle to valley 2 floor (dx=500 dy=250, peak ~37deg)
+		Vector2(6700, 1200), # valley 2 floor - mud zone
+		Vector2(8100, 450),  # crest 2 (dx=1400 dy=-750, peak ~39deg)
+		Vector2(8600, 450),  # flat top crest 2 - boost pad #1
+		Vector2(9500, 450),  # extended flat run - gap #1 sits inside this stretch with runway both sides
+		Vector2(10100, 700), # descent begins into the flow gauntlet (dx=600 dy=250, peak ~32deg, gentle transition)
+		# Flow gauntlet: 8 gentle rolling hills (dx=700 dy=250, peak ~32deg,
+		# same gentle-by-design angle level 2's gauntlet already proved
+		# holds Flow uninterrupted), spanning 7700px - longer than level 2's
+		# 6300px for more sustained time at Flow's cap.
+		Vector2(10800, 450),
+		Vector2(11500, 700),
+		Vector2(12200, 450),
+		Vector2(12900, 700),
+		Vector2(13600, 450),
+		Vector2(14300, 700),
+		Vector2(15000, 450),
+		Vector2(15700, 700),
+		Vector2(16400, 450),
+		Vector2(17100, 700),
+		Vector2(17800, 450), # end of the flow gauntlet
+		Vector2(18300, 600), # gentle transition into bhop corridor 2 (dx=500 dy=150, peak ~24deg)
+		# Bhop corridor 2: same ~47deg peak as corridor 1 (dx=170 dy=120),
+		# but twice as many cycles (8 vs corridor 1's ~4) - the longest,
+		# most sustained bump stretch in the game so far, the "way harder"
+		# payoff after the calm of the gauntlet, same idea as level 2's
+		# corridor 2 relative to its corridor 1.
+		Vector2(18470, 720),
+		Vector2(18640, 600),
+		Vector2(18810, 720),
+		Vector2(18980, 600),
+		Vector2(19150, 720),
+		Vector2(19320, 600),
+		Vector2(19490, 720),
+		Vector2(19660, 600),
+		Vector2(19830, 720),
+		Vector2(20000, 600),
+		Vector2(20170, 720),
+		Vector2(20340, 600),
+		Vector2(20510, 720),
+		Vector2(20680, 600),
+		Vector2(20850, 720),
+		Vector2(21020, 600),
+		Vector2(21400, 750), # settle down (dx=380 dy=150, peak ~30deg)
+		Vector2(21800, 750), # flat run - gap #2 sits inside this stretch with runway both sides
+		Vector2(22400, 750), # flat continues past the gap for landing runway
+		Vector2(22900, 750), # boost pad #2
+		Vector2(23800, 750), # finish straight
+	]
+
+
+func _level_3_zones() -> Array[Dictionary]:
+	return [
+		{"type": "ice", "start": 1700.0, "end": 2200.0},
+		{"type": "launch", "start": 3600.0, "end": 3700.0},
+		{"type": "bhop", "start": 4500.0, "end": 5700.0},
+		{"type": "mud", "start": 6200.0, "end": 6700.0},
+		{"type": "boost", "start": 8650.0, "end": 8800.0},
+		{"type": "flow", "start": 10100.0, "end": 17800.0},
+		{"type": "bhop", "start": 18300.0, "end": 21020.0},
+		{"type": "boost", "start": 22950.0, "end": 23150.0},
+	]
+
+
+## Gap 1 sits on crest 2's extended flat top (8600-9500, boost pad already
+## claims 8650-8800), leaving 200px of runway before it and 200px before the
+## flow gauntlet's descent begins - same "generous flat runway, no launch
+## right before" placement rule established for both level-2's gap and this
+## level's gap 2 below. Gap 2 sits on the flat settle-down after bhop
+## corridor 2 (21400-22400), well before boost pad #2 (22950-23150).
+func _level_3_gaps() -> Array[Dictionary]:
+	return [
+		{"start": 9000.0, "end": 9300.0},
+		{"start": 21900.0, "end": 22200.0},
+	]
+
+
+func _level_3_checkpoints() -> Array[float]:
+	return [2250.0, 5750.0, 7200.0, 8850.0, 13650.0, 17850.0, 21750.0]
 
 
 ## Ground surface height at world x, following the same curve used to build

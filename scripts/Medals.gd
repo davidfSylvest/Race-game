@@ -12,18 +12,32 @@ extends Node
 ##
 ## Every threshold here was MEASURED, not guessed: a throwaway 4-policy
 ## headless bot (perfect tangent-tracking / decent-but-imperfect / noisy
-## "randomish" / weak "poor") raced both existing levels start to finish.
-## "poor" DNFs (dies repeatedly at the terrain gap) on both levels - a
+## "randomish" / weak "poor") raced every level start to finish.
+## "poor" DNFs (dies repeatedly at the terrain gap) on levels 1/2 - a
 ## deliberate, believable bronze-miss baseline, consistent with the rest of
 ## this project's "measure, don't guess" culture (see CLAUDE.md). Bronze is
-## set at the 3rd-place *finishing* policy's time (perfect/decent/randomish
-## all finish; poor doesn't), per the user's explicit "3rd place of
-## benchmarks" framing, with a small rounding buffer so a human replicating
-## that policy's rough skill level can actually clear it, not just an
-## idealized bot landing on the exact frame.
-const GOLD: Dictionary = {1: 16.5, 2: 31.5}
-const SILVER: Dictionary = {1: 18.5, 2: 35.5}
-const BRONZE: Dictionary = {1: 25.5, 2: 50.0}
+## set at the 3rd-place *finishing* policy's time, per the user's explicit
+## "3rd place of benchmarks" framing, with a small rounding buffer so a human
+## replicating that policy's rough skill level can actually clear it, not
+## just an idealized bot landing on the exact frame.
+##
+## Level 3 measured differently, worth recording: all four policies finish
+## (no DNF), because level 3's two gaps sit inside deliberately long, fully
+## flat runs (500-900px of flat ground before each) - see Terrain.gd's
+## _level_3_gaps() comment - so even "poor"'s weak/off-angle technique still
+## clears them once combined with the same "commit to a clean aimed approach
+## in the final 500px before a gap" concession every policy gets (matches
+## the established design rationale: a real player lines up a landmark gap
+## deliberately even if sloppy everywhere else). "poor" is still a believable
+## bronze-miss baseline here, just via being dramatically slower overall
+## (276.2s vs 39.2s perfect) from its weak technique on the rest of the
+## course, rather than a literal DNF at the gap - the 3rd-place-of-benchmarks
+## rule still applies identically: bronze = randomish's time (the 3rd
+## finisher), same as levels 1/2. Measured: perfect 39.2s, decent 56.1s,
+## randomish 66.3s, poor 276.2s (all four finished, zero deaths).
+const GOLD: Dictionary = {1: 16.5, 2: 31.5, 3: 40.0}
+const SILVER: Dictionary = {1: 18.5, 2: 35.5, 3: 57.5}
+const BRONZE: Dictionary = {1: 25.5, 2: 50.0, 3: 68.0}
 
 
 func gold_time(level: int) -> float:

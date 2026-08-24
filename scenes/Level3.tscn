@@ -1,0 +1,172 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/Player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/Main.gd" id="2_main"]
+[ext_resource type="Script" path="res://scripts/Joystick.gd" id="3_joystick"]
+[ext_resource type="Script" path="res://scripts/Terrain.gd" id="4_terrain"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_player"]
+radius = 20.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_endzone"]
+size = Vector2(40, 400)
+
+[node name="Main" type="Node2D"]
+script = ExtResource("2_main")
+
+[node name="Terrain" type="Node2D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("4_terrain")
+level = 3
+
+[node name="EndZone" type="Area2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(0, 0)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="EndZone"]
+shape = SubResource("RectangleShape2D_endzone")
+
+[node name="EndZoneVisual" type="Polygon2D" parent="EndZone"]
+color = Color(0.3, 0.85, 0.4, 0.35)
+polygon = PackedVector2Array(-20, -200, 20, -200, 20, 200, -20, 200)
+
+[node name="Player" type="CharacterBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(100, 560)
+script = ExtResource("1_player")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
+position = Vector2(0, -20)
+shape = SubResource("CircleShape2D_player")
+
+[node name="Visual" type="Polygon2D" parent="Player"]
+position = Vector2(0, -20)
+color = Color(0.85, 0.25, 0.25, 1)
+polygon = PackedVector2Array(20.000, 0.000, 19.021, 6.180, 16.180, 11.756, 11.756, 16.180, 6.180, 19.021, 0.000, 20.000, -6.180, 19.021, -11.756, 16.180, -16.180, 11.756, -19.021, 6.180, -20.000, 0.000, -19.021, -6.180, -16.180, -11.756, -11.756, -16.180, -6.180, -19.021, -0.000, -20.000, 6.180, -19.021, 11.756, -16.180, 16.180, -11.756, 19.021, -6.180)
+
+[node name="RollMarker" type="Polygon2D" parent="Player/Visual"]
+color = Color(0.55, 0.12, 0.12, 1)
+polygon = PackedVector2Array(-4, -20, 4, -20, 4, -10, -4, -10)
+
+[node name="Camera2D" type="Camera2D" parent="Player"]
+zoom = Vector2(0.85, 0.85)
+position_smoothing_enabled = true
+position_smoothing_speed = 5.0
+
+[node name="UI" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="TimerLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 20.0
+offset_right = 340.0
+offset_bottom = 64.0
+theme_override_font_sizes/font_size = 34
+text = "00:00.000"
+
+[node name="BestLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 66.0
+offset_right = 340.0
+offset_bottom = 90.0
+theme_override_font_sizes/font_size = 18
+text = ""
+
+[node name="SpeedLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 94.0
+offset_right = 340.0
+offset_bottom = 126.0
+theme_override_font_sizes/font_size = 20
+text = "Speed: 0.0 px/s"
+
+[node name="FlowLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 132.0
+offset_right = 340.0
+offset_bottom = 152.0
+theme_override_font_sizes/font_size = 16
+text = "Flow"
+
+[node name="FlowBarBg" type="ColorRect" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 154.0
+offset_right = 224.0
+offset_bottom = 170.0
+color = Color(1, 1, 1, 0.15)
+
+[node name="FlowBarFill" type="ColorRect" parent="UI/FlowBarBg"]
+unique_name_in_owner = true
+offset_right = 0.0
+offset_bottom = 16.0
+color = Color(0.3, 0.85, 0.95, 0.9)
+
+[node name="ChainLabel" type="Label" parent="UI"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 178.0
+offset_right = 340.0
+offset_bottom = 200.0
+theme_override_font_sizes/font_size = 18
+text = ""
+
+[node name="Joystick" type="Control" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 0
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 0.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = -280.0
+offset_right = 280.0
+offset_bottom = -40.0
+mouse_filter = 2
+script = ExtResource("3_joystick")
+
+[node name="RestartButton" type="Button" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -140.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 64.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 20
+text = "Restart"
+
+[node name="JumpButton" type="Button" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -200.0
+offset_right = -40.0
+offset_bottom = -40.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_font_sizes/font_size = 28
+text = "JUMP"
+
+[node name="LevelButton" type="Button" parent="UI"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -180.0
+offset_top = 74.0
+offset_right = -20.0
+offset_bottom = 128.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 20
+text = "Level 1"

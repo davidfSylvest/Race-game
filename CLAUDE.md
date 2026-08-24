@@ -15,12 +15,16 @@ general license - it's scoped exactly to per-level best-time+ghost
 persistence and the unlock gate, not a save-everything system, not a
 level-select menu, not cloud sync.
 
-There are now two levels (the user explicitly asked for a second course, so
-that item moved out of "DO NOT BUILD" - see the two-level architecture note
-under Architecture). That's a deliberate, one-time exception to the rule
-below, not a sign the rule has loosened generally: still don't add a third
-level, a level-select menu screen, or anything else on the DO NOT BUILD list
-unless asked for that specific thing again.
+There are now three levels. The user's explicit /goal ask went further than
+the original one-time second-course exception: "more challenging the greater
+the number until level 10," each gated on beating the previous level's bronze
+time. That's a standing, scoped authorization to keep adding levels 4-10
+incrementally (see the "Two-/three-level architecture" and "Persistence,
+Ghosts, and Level Unlocks" notes under Architecture for what's built and
+what's still planned) - it is NOT a general license for anything else on the
+DO NOT BUILD list below (still no level-select menu screen, still no scope
+creep beyond levels + their own medal/unlock plumbing) unless asked for that
+specific thing again.
 
 Same story with visuals: the user explicitly asked to "greatly improve the
 textures, shading, lighting, and models," so the old "gray-box art only" line
@@ -156,18 +160,25 @@ overrode player input) that a headless smoke test caught before commit.
 
 ## Architecture
 
-- **Two levels, two scenes, one set of scripts.** `scenes/Main.tscn` (level
-  1, the original course) and `scenes/Level2.tscn` (level 2 - see below)
-  share the exact same `Player.gd`/`Main.gd`/`Joystick.gd` and even the same
+- **N levels, N scenes, one set of scripts.** `scenes/Main.tscn` (level 1,
+  the original course), `scenes/Level2.tscn` (level 2), and `scenes/Level3.tscn`
+  (level 3 - see "Level 3" under Persistence/Ghosts/Unlocks below) share the
+  exact same `Player.gd`/`Main.gd`/`Joystick.gd` and even the same
   `Terrain.gd` script; the only per-scene difference is a single `level`
-  property on the Terrain node (`1` in Main.tscn, `2` in Level2.tscn - see
+  property on the Terrain node (`1`/`2`/`3` respectively - see
   `Terrain._configure_level()`). A small `LevelButton` in the HUD (same
   category as Restart/Jump, not a menu screen) calls
-  `get_tree().change_scene_to_file(...)` to swap between them - each scene
-  swap is a full fresh load (new Player, new Terrain, new Main), so there's
-  no cross-level state to manage; even the session-only best time naturally
-  resets per level for free. Don't build a level-select menu or a third
-  level unless asked - see the top of this file.
+  `get_tree().change_scene_to_file(...)` to cycle forward through all
+  `Main.TOTAL_LEVELS` levels (wrapping back to 1 after the last, gated by
+  `SaveManager.is_level_unlocked()` same as always - see
+  `Main._scene_path_for_level()`/`_update_level_button_label()`/
+  `_on_level_button_pressed()`) - each scene swap is a full fresh load (new
+  Player, new Terrain, new Main), so there's no cross-level state to manage.
+  Adding a level means: new `Terrain._level_N_*()` data functions + a new
+  `scenes/LevelN.tscn` + bumping `Main.TOTAL_LEVELS` + a new `Medals.gd`
+  entry - don't build a level-select menu screen, and don't add levels
+  beyond what's been explicitly asked for (currently up to 10, per the
+  user's /goal - see the top of this file).
 - `scripts/Terrain.gd` — builds the ground at runtime from a `keyframes`
   array of `(x, y)` control points, smoothstep-interpolated between them
   (curved, not linear) into one `CollisionPolygon2D` + `Polygon2D`. Exposes
@@ -543,14 +554,85 @@ progress"); that design choice is gone now, replaced by an actual save file.
   on the correct level. Re-ran the standard clean-reimport + both-scenes
   smoke test afterward per this file's own validation rules - no errors on
   either level.
-- Next planned increments toward the user's larger ask (10 levels total,
-  progressively more challenging, each gated on the previous level's bronze):
-  levels 3+ don't exist yet and need the same care levels 1/2 got (hand-tuned
-  keyframes/zones, a dedicated flow-state passage, headlessly-verified gap
-  placement, and their own measured medal thresholds) - that's substantial
-  additional work, planned as further incremental commits rather than
-  invented wholesale in one pass, the same way level 2 itself was added
-  separately from level 1 rather than both at once.
+- **Level 3** (`Terrain._level_3_keyframes()`/`_level_3_zones()`/
+  `_level_3_gaps()`/`_level_3_checkpoints()`, `scenes/Level3.tscn`): the third
+  step toward the user's larger 10-level ask, built with the same rigor as
+  levels 1/2 rather than guessed. Longest course yet (`course_end_x` ~23800,
+  vs level 2's ~19300), and deliberately harder in the ways level 2 already
+  established work: two bhop corridors (corridor 1 ~48deg peak/4 cycles,
+  corridor 2 ~47deg peak but 8 cycles - the longest sustained bump stretch in
+  the game), a longer flow gauntlet (7700px vs level 2's 6300px, same
+  ~28-32deg peak angles level 2 already proved hold Flow uninterrupted), one
+  ice patch, one mud patch, one launch pad, two boost pads, and - the one
+  genuinely new element - **two** terrain gaps instead of one, both 300px
+  (the width established as the minimum that can't be crossed on momentum
+  alone - see "Gaps, Death, and Checkpoints" below).
+  - Both gaps sit inside deliberately long, fully flat runs (500-900px of
+    flat ground before each - gap 1 at 9000-9300 inside the 8600-9500 flat
+    stretch after crest 2, gap 2 at 21900-22200 inside the 21400-22400 flat
+    stretch after bhop corridor 2) - this is MORE generous than level 1/2's
+    gap placements, deliberately, so a longer/harder course doesn't also
+    stack a tighter jump-timing window on top of everything else that's
+    already harder about it.
+  - All 7 checkpoints (2250, 5750, 7200, 8850, 13650, 17850, 21750) were
+    verified headlessly against the exact "cresting" re-grounding bug found
+    and fixed on Level 2's original 17950 checkpoint: reset the player at
+    each one and count frames until `is_on_floor()` re-establishes. All 7
+    came back at 0 frames - unlike level 2, none needed moving.
+  - Verified with a real full-course headless run (not synthetic): a
+    tangent-tracking bot that jumps once per gap from the flat run just
+    before it (matching the established "jump from flat ground, not while
+    still climbing" finding) finishes clean with zero deaths in 39.2s. A
+    control run with the identical lean policy but jumping disabled reliably
+    dies at gap 1 (~x=8850, right at the gap mouth) - confirming the gap
+    genuinely requires a real jump, momentum alone doesn't clear it. Landing-
+    event tracing also confirmed no unwanted bounce on ordinary slopes
+    outside the bhop corridors/gaps/launch pad (only 3 "extra" landings
+    outside the two bhop corridors, and they're fully accounted for: the one
+    launch-pad landing plus the two gap-jump landings, not stray bounce).
+  - Medal thresholds measured with the same 4-policy bot as levels 1/2, with
+    one real difference worth recording: on levels 1/2, "poor" DNFs (dies
+    repeatedly at the gap); on level 3, thanks to the more generous flat-run
+    gap placement above plus the same "commit to a clean aimed approach in
+    the final 500px before a gap" concession every policy gets, "poor"
+    actually clears both gaps too - it's still a believable bronze-miss
+    baseline, just via being dramatically slower overall (276.2s vs 39.2s
+    perfect) from weak technique on the rest of the course, not a literal
+    gap death. The "3rd place of benchmarks" rule still applies identically:
+    all four policies finished, so bronze = randomish's time (the 3rd
+    finisher), same rule as levels 1/2, just a different route to the same
+    ranking. Measured: perfect 39.2s, decent 56.1s, randomish 66.3s, poor
+    276.2s (zero deaths on every policy). Thresholds set the same way as
+    levels 1/2 (gold/silver near perfect/decent with a small buffer, bronze
+    at randomish's time with a small buffer): gold 40.0, silver 57.5,
+    bronze 68.0 - see `Medals.gd`.
+  - **LevelButton generalized from a 2-level toggle to an N-level cycle**:
+    with a 3rd level, the old `_update_level_button_label()`/
+    `_on_level_button_pressed()` logic (hardcoded `2 if terrain.level == 1
+    else 1`) would have sent Level 2's button backward to Level 1 instead of
+    forward to Level 3. Replaced with `(terrain.level % TOTAL_LEVELS) + 1`
+    (a new `Main.gd` const, bumped as levels are added) plus a
+    `_scene_path_for_level()` helper (level 1 -> `Main.tscn`, level N>1 ->
+    `Level%d.tscn`) so the button now cycles forward through however many
+    levels exist and wraps back to 1 after the last, instead of only ever
+    toggling between two. Verified headlessly across all three scenes: level
+    1's button reads "Level 2", level 2's reads "Level 3 (Locked)" (level 3
+    correctly gated on level 2's not-yet-beaten bronze time), level 3's
+    reads "Level 1" (wraps around) - and all three scenes still boot with
+    zero errors.
+  - Re-ran the standard clean-reimport smoke test on all three scenes after
+    every change in this section (terrain, medals, button logic) per this
+    file's own validation rules - no errors on any level, and levels 1/2's
+    own numbers are untouched since none of the shared Player.gd/Joystick.gd
+    physics logic changed, only new level-3-only data and a strictly-additive
+    `Main.gd` generalization.
+- Levels 4 through 10 don't exist yet and are the next planned increments
+  toward the user's 10-level ask, each needing the same treatment level 3
+  got (hand-tuned keyframes/zones, headlessly-verified gap/checkpoint
+  placement, measured medal thresholds) - substantial additional work,
+  planned as further incremental commits one level at a time rather than
+  invented wholesale in one pass, the same way each of levels 1/2/3 were
+  built as separate efforts rather than all at once.
 
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)

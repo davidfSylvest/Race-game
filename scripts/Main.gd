@@ -26,6 +26,16 @@ const END_ZONE_HEIGHT: float = 400.0
 const END_ZONE_MARGIN: float = 100.0 # back off from the very last keyframe so there's a flat runway after it
 const FALL_RECOVERY_MARGIN: float = 2000.0 # px below the deepest terrain point before an auto-recovery kicks in
 
+# Total level count, and the level->scene naming convention (level 1 lives in
+# Main.tscn for historical reasons - it predates every other level - every
+# level after it is "res://scenes/Level%d.tscn"). LevelButton used to be a
+# hardcoded 2-level toggle (a straight swap between "the other level"); that
+# broke the instant a 3rd level existed, since pressing it from Level 2 would
+# incorrectly go back to Level 1 instead of forward to Level 3. Generalized to
+# cycle forward through all N levels, wrapping back to 1 after the last -
+# bump TOTAL_LEVELS as each new level is added.
+const TOTAL_LEVELS: int = 3
+
 # A new best time already printed to the console ("NEW BEST"), which is
 # useless on the user's actual platform - there's no console visible on the
 # Android build, so the only in-game signal was the Best label's number
@@ -337,13 +347,21 @@ func _on_end_zone_body_entered(body: Node) -> void:
 		print("Final time: %s (%.3f s)%s" % [_format_time(_elapsed), _elapsed, "  NEW BEST" if is_new_best else ""])
 
 
-## Labels the button with the OTHER level's number, plus a lock marker if
-## that level isn't unlocked yet - a real player needs this to know the
-## button won't just be a level swap right now, without needing a whole
-## level-select menu screen to communicate it (see CLAUDE.md's minimalism
-## stance on menus).
+## Level 1 lives in Main.tscn (predates the level-scene naming convention);
+## every level after it follows "res://scenes/Level%d.tscn".
+static func _scene_path_for_level(level: int) -> String:
+	if level <= 1:
+		return "res://scenes/Main.tscn"
+	return "res://scenes/Level%d.tscn" % level
+
+
+## Labels the button with the NEXT level's number (cycling back to 1 after
+## the last one), plus a lock marker if that level isn't unlocked yet - a real
+## player needs this to know the button won't just be a level swap right now,
+## without needing a whole level-select menu screen to communicate it (see
+## CLAUDE.md's minimalism stance on menus).
 func _update_level_button_label() -> void:
-	var target_level: int = 2 if terrain.level == 1 else 1
+	var target_level: int = (terrain.level % TOTAL_LEVELS) + 1
 	var label: String = "Level %d" % target_level
 	if not SaveManager.is_level_unlocked(target_level):
 		label += " (Locked)"
@@ -351,20 +369,20 @@ func _update_level_button_label() -> void:
 
 
 ## Not a menu screen - just a HUD button, same category as Restart/Jump, that
-## swaps to the other level's scene entirely (fresh Player/Terrain/Main, no
+## swaps to the next level's scene entirely (fresh Player/Terrain/Main, no
 ## shared state) rather than trying to reconfigure Terrain live - unless that
 ## level is locked, in which case the swap is refused and the existing event
 ## banner (used elsewhere for CHECKPOINT/DIED) explains why instead, showing
 ## the bronze time still needed - the user's explicit Trackmania-style ask
 ## ("levels unlocked by beating the bronze time") needs a real gate, not just
-## a cosmetic label.
+## a cosmetic label. Cycles forward through all TOTAL_LEVELS rather than
+## toggling between two, so this scales to however many levels exist.
 func _on_level_button_pressed() -> void:
-	var target_level: int = 2 if terrain.level == 1 else 1
+	var target_level: int = (terrain.level % TOTAL_LEVELS) + 1
 	if not SaveManager.is_level_unlocked(target_level):
 		_show_event("LOCKED - beat %s on Level %d" % [_format_time(Medals.bronze_time(target_level - 1)), target_level - 1], LOCKED_FLASH_COLOR, LOCKED_FLASH_DURATION)
 		return
-	var target_scene: String = "res://scenes/Level2.tscn" if target_level == 2 else "res://scenes/Main.tscn"
-	get_tree().change_scene_to_file(target_scene)
+	get_tree().change_scene_to_file(_scene_path_for_level(target_level))
 
 
 ## Falling off the world edge or missing a gap's jump - see _process()'s
