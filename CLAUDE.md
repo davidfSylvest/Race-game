@@ -863,6 +863,82 @@ checkpoint." Three changes together:
     (perfect/decent/poor) clear both gaps with zero deaths and finish at
     times close to the pre-gap baseline on both levels.
 
+### Spam-jumping should never be your fastest strategy
+
+The user's explicit complaint: they didn't want to be able to just mash the
+JUMP button and have that be their best time, full stop - not "gaps should
+be more punishing" (the previous section), a completely separate concern
+about whether SKILL (aimed lean) beats MASHING overall. Measured first,
+fixed second, same as everywhere else in this file: a headless bot that
+does nothing but hold forward lean and press `jump()` every single grounded
+frame (zero aiming skill at all) finished level 1 in 13.2s, a full 22%
+**faster** than a bot perfectly tangent-tracking the whole course with no
+manual jumping at all (16.9s). That's a real, serious problem for a game
+whose entire premise is that aimed lean is the skill that matters. Root
+Caused to two independent bugs, not one:
+
+- **Air control had no speed ceiling at all.** The ground-acceleration
+  block a few lines above it (toward `max_speed_this_frame`) already runs
+  regardless of `on_floor` - it uses `tangent`, which just defaults to
+  `Vector2.RIGHT` when airborne, so ceiling-capped forward acceleration was
+  always happening in the air too. Air control was a SECOND, completely
+  separate addition to velocity on top of that, gated only by
+  `air_alignment` with no cap whatsoever - `velocity += vel_dir *
+  air_alignment * air_control_accel * delta`, every single airborne frame,
+  for the ball's entire ~0.65s flight time. Repeated jumping means repeated
+  ~0.65s windows of this free, uncapped acceleration, compounding well past
+  whatever ceiling actual ground technique would ever earn. Fixed by
+  computing the exact same ceiling formula for air control (using
+  `air_alignment` in place of `directional_magnitude`, since there's no
+  ground tangent to measure lean against mid-air) and capping the
+  acceleration step to the remaining headroom under it, identical in shape
+  to the ground block. `combined_multiplier` (Flow/Chain/slope) is now
+  computed once and shared by both blocks instead of being local to the
+  ground block, since both need it.
+- **Mud's friction scale didn't just add "more friction," it scaled
+  catastrophically with speed.** The per-frame loss is a PERCENTAGE of
+  current speed (`ground_speed_now * (effective_friction_decay - 1.0)`),
+  while the acceleration fighting it is a roughly fixed absolute rate
+  (`accel_force * delta`, a few dozen px/s per frame regardless of current
+  speed). At the realistic 800-1000+ px/s this course routinely produces
+  after this session's various speed-boosting additions (gravity assist,
+  Flow, Chain), the old `mud_friction_scale` of 6.5 crushed even a
+  perfect, full-lean rider from ~1000 px/s to ~120 px/s in well under a
+  second crossing the mud zone - nowhere near the design intent documented
+  above ("a consistently-leaning rider barely notices it since they're
+  already accel-bound near their ceiling"). That catastrophic, unsurvivable
+  drop is exactly what made simply staying airborne over the mud patch (via
+  jumping) so much better than actually riding through it as designed.
+  Lowered to 2.0: verified a full-lean rider now settles in the mid-400s
+  px/s crossing it - a real, clearly-felt slowdown, not a near-total wipe.
+- Together these two fixes cut the level-1 spam-jump advantage from 22%
+  down to about 8% (14.9s perfect vs 13.75s spam-jump), and on level 2 a
+  bot that does nothing but hold forward and mash jump doesn't even finish
+  the course (gets stuck well past the flow gauntlet) - so on the level
+  actually built to reward sustained aimed-lean Flow, mashing jump is
+  outright worse, not better.
+- **The remaining ~8% on level 1 is real and localized to the bhop
+  section specifically**, not spread across the course - verified by
+  isolating just that section (6900-8700) with a fixed start
+  velocity/position: riding the bumps as designed (either tangent-tracking
+  or a fixed lean, matching the existing "test bhop with momentum-coast,
+  not tangent-hugging" guidance above) takes ~3.5-3.8s, mashing jump
+  through the same stretch takes ~3.0s. This looks like the ball's arc
+  skipping over 2-3 bumps at once and landing on a later bump that happens
+  to be favorably oriented, since the bump pattern is periodic - closer to
+  a real bunny-hop technique (which this project is explicitly inspired by)
+  than an obviously-broken exploit. Tried the one other lever that looked
+  promising - raising `jump_cooldown` to space out how often mashing can
+  re-fire relative to the bumps' own rhythm - and rejected it: the effect
+  was NOT monotonic (0.15 favored spam, 0.22-0.25 favored it even MORE by
+  accidentally resonating better with the bump spacing, 0.35 overcorrected
+  to favor riding instead), meaning any specific value would be fragile
+  and terrain-spacing-dependent rather than a real fix. Left at the
+  original 0.15. If this residual margin needs closing too, it likely
+  needs a real distinction between a jump-induced launch and a
+  terrain-induced one in the landing/launch-quality system, not another
+  constant tweak - flagged here rather than guessed at.
+
 ## Working style expected on this project
 
 - The user plays on a phone only, via the Godot Android editor. There is no

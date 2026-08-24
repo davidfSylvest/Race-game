@@ -298,57 +298,81 @@ func _physics_process(delta: float) -> void:
 		var raw_magnitude: float = clamp(lean.length(), 0.0, 1.0)
 		directional_magnitude = lerp(raw_magnitude, aligned_magnitude, alignment_influence)
 
-		if directional_magnitude > 0.0:
-			var chain_multiplier: float = 1.0 + min(chain_count * chain_bonus_per_link, chain_max_bonus)
-			var flow_speed_multiplier: float = (1.0 + flow * flow_speed_bonus) * chain_multiplier
-			var flow_accel_multiplier: float = (1.0 + flow * flow_accel_bonus) * chain_multiplier
-			var accel_force: float = directional_magnitude * max_accel_constant * flow_accel_multiplier
-			var speed_ratio: float = pow(directional_magnitude, speed_exponent)
-			var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
-			# Slope, Flow, and Chain each stack multiplicatively into the
-			# ceiling - great on their own, but a steep downhill at max Flow
-			# and a long Chain can otherwise combine to nearly 3x. Capping
-			# the combined environmental+skill multiplier keeps any single
-			# best-case moment from trivializing the course, while each
-			# system still reads clearly on its own below the cap.
-			var combined_multiplier: float = min(slope_multiplier * flow_speed_multiplier, max_combined_ceiling_multiplier)
-			var max_speed_this_frame: float = max(speed_ratio * top_speed_constant * combined_multiplier, min_ceiling_with_any_lean)
+	# Chain/Flow/slope combine into one environmental+skill multiplier that
+	# BOTH ground acceleration and air control below have to share - see the
+	# air control comment for why this stopped being ground-only.
+	var chain_multiplier: float = 1.0 + min(chain_count * chain_bonus_per_link, chain_max_bonus)
+	var flow_speed_multiplier: float = (1.0 + flow * flow_speed_bonus) * chain_multiplier
+	var flow_accel_multiplier: float = (1.0 + flow * flow_accel_bonus) * chain_multiplier
+	var slope_multiplier: float = max(1.0 + forward_slope * slope_ceiling_bonus, slope_ceiling_floor)
+	# Slope, Flow, and Chain each stack multiplicatively into the ceiling -
+	# great on their own, but a steep downhill at max Flow and a long Chain
+	# can otherwise combine to nearly 3x. Capping the combined
+	# environmental+skill multiplier keeps any single best-case moment from
+	# trivializing the course, while each system still reads clearly on its
+	# own below the cap.
+	var combined_multiplier: float = min(slope_multiplier * flow_speed_multiplier, max_combined_ceiling_multiplier)
 
-			# Accelerate toward the ceiling this lean+slope+flow unlocks, but
-			# never yank existing momentum down if it's already above that
-			# ceiling - velocity only bleeds off via friction_decay, never an
-			# input clamp. Capped to the remaining headroom rather than
-			# added-then-clamped: the old add-full-step-then-clamp-back-down
-			# approach snapped velocity to exactly the ceiling every frame it
-			# was reached, and since friction (below) always pulls a little
-			# off that same ceiling every frame regardless, the two combined
-			# into a real, repeating ~2%-of-speed sawtooth every single
-			# frame at steady state (measured ~7-8 px/s of frame-to-frame
-			# noise while cruising at ~400 px/s) - invisible on the old
-			# humanoid's lean-angle tilt (which only reflected input, not
-			# raw velocity) but immediately visible as a jittery, unsmooth
-			# spin rate once the ball's rotation started tracking
-			# instantaneous velocity directly. Capping to headroom instead
-			# makes the approach to the ceiling asymptotic - it settles at a
-			# steady equilibrium where each frame's capped accel step just
-			# offsets that frame's friction loss, instead of oscillating
-			# between overshoot and clamp.
-			var ground_speed: float = velocity.dot(tangent)
-			if absf(ground_speed) < max_speed_this_frame:
-				var headroom: float = max_speed_this_frame - absf(ground_speed)
-				var accel_step: float = min(accel_force * delta, headroom)
-				velocity += tangent * dir_sign * accel_step
+	if directional_magnitude > 0.0:
+		var accel_force: float = directional_magnitude * max_accel_constant * flow_accel_multiplier
+		var speed_ratio: float = pow(directional_magnitude, speed_exponent)
+		var max_speed_this_frame: float = max(speed_ratio * top_speed_constant * combined_multiplier, min_ceiling_with_any_lean)
+
+		# Accelerate toward the ceiling this lean+slope+flow unlocks, but
+		# never yank existing momentum down if it's already above that
+		# ceiling - velocity only bleeds off via friction_decay, never an
+		# input clamp. Capped to the remaining headroom rather than
+		# added-then-clamped: the old add-full-step-then-clamp-back-down
+		# approach snapped velocity to exactly the ceiling every frame it
+		# was reached, and since friction (below) always pulls a little
+		# off that same ceiling every frame regardless, the two combined
+		# into a real, repeating ~2%-of-speed sawtooth every single
+		# frame at steady state (measured ~7-8 px/s of frame-to-frame
+		# noise while cruising at ~400 px/s) - invisible on the old
+		# humanoid's lean-angle tilt (which only reflected input, not
+		# raw velocity) but immediately visible as a jittery, unsmooth
+		# spin rate once the ball's rotation started tracking
+		# instantaneous velocity directly. Capping to headroom instead
+		# makes the approach to the ceiling asymptotic - it settles at a
+		# steady equilibrium where each frame's capped accel step just
+		# offsets that frame's friction loss, instead of oscillating
+		# between overshoot and clamp.
+		var ground_speed: float = velocity.dot(tangent)
+		if absf(ground_speed) < max_speed_this_frame:
+			var headroom: float = max_speed_this_frame - absf(ground_speed)
+			var accel_step: float = min(accel_force * delta, headroom)
+			velocity += tangent * dir_sign * accel_step
 
 	# Air control: while airborne, pointing the stick along your current
-	# trajectory (not just world-horizontal) adds a little extra speed -
-	# an air-strafe-style reward for aiming where you're already going
-	# instead of just coasting through the jump passively. Requires an
-	# actual lean; doing nothing mid-air gets nothing.
+	# trajectory (not just world-horizontal) adds a little extra speed - an
+	# air-strafe-style reward for aiming where you're already going instead
+	# of just coasting through the jump passively. Requires an actual lean;
+	# doing nothing mid-air gets nothing.
+	#
+	# Capped to the SAME speed ceiling ground riding respects (computed here
+	# from air_alignment instead of directional_magnitude, since there's no
+	# ground tangent to measure lean against mid-air) - it used to be
+	# uncapped, continuous acceleration for the whole ~0.65s flight with no
+	# ceiling at all, which made repeated jumping a way to blow past
+	# whatever ceiling actual technique earned on the ground: a headless
+	# bot doing nothing but holding forward and mashing jump (zero lean
+	# skill) finished a full course 22% FASTER than a bot riding the exact
+	# ground tangent perfectly with no jumping at all - exactly the
+	# "spamming jump gives my best time" exploit the user reported, not
+	# something a normal test of either mechanic in isolation would surface.
+	# Capping air control to the ceiling closes it while leaving the actual
+	# reward (aim well mid-air, catch up to the ceiling faster) intact.
 	if not on_floor and velocity.length() > 10.0:
 		var vel_dir: Vector2 = velocity.normalized()
 		var air_alignment: float = clamp(lean.dot(vel_dir), 0.0, 1.0)
 		if air_alignment > 0.0:
-			velocity += vel_dir * air_alignment * air_control_accel * delta
+			var air_speed_ratio: float = pow(air_alignment, speed_exponent)
+			var air_ceiling: float = max(air_speed_ratio * top_speed_constant * combined_multiplier, min_ceiling_with_any_lean)
+			var current_speed: float = velocity.length()
+			if current_speed < air_ceiling:
+				var headroom: float = air_ceiling - current_speed
+				var accel_step: float = min(air_alignment * air_control_accel * delta, headroom)
+				velocity += vel_dir * accel_step
 
 	# Flow builds from sustained good technique on the ground, and fades
 	# otherwise (bad angle, no lean, or mid-air) - it's a state you have to
