@@ -12,6 +12,11 @@ run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.7")
 config/icon="res://icon.svg"
 
+[autoload]
+
+SaveManager="*res://scripts/SaveManager.gd"
+Medals="*res://scripts/Medals.gd"
+
 [display]
 
 window/size/viewport_width=1280

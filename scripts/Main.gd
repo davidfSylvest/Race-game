@@ -47,17 +47,32 @@ const DEATH_FLASH_COLOR: Color = Color(0.95, 0.25, 0.2, 1)
 const CHECKPOINT_FLASH_DURATION: float = 1.2
 const CHECKPOINT_FLASH_COLOR: Color = Color(0.35, 0.9, 0.55, 1)
 
+# Trackmania-style level gating: the user explicitly asked for later levels
+# to require beating the previous level's bronze time first (see Medals.gd/
+# SaveManager.gd). Reuses the same one-shot event banner CHECKPOINT/DIED
+# already use rather than adding a whole new UI element for one message.
+const LOCKED_FLASH_DURATION: float = 2.0
+const LOCKED_FLASH_COLOR: Color = Color(0.75, 0.75, 0.8, 1)
+
 var _elapsed: float = 0.0
 var _timer_running: bool = false
 var _finished: bool = false
 var _spawn_position: Vector2
-var _best_time: float = -1.0 # session-only, no persistence - just gives restart-and-retry a sense of progress
+var _best_time: float = -1.0 # loaded from SaveManager in _ready() - persistent across restarts/relaunches now, since the user explicitly asked for cross-session highscores (this used to be session-only by design; see "Persistence, Ghosts, and Level Unlocks" in CLAUDE.md for why that changed)
 var _fall_recovery_y: float = 0.0
 var _new_best_flash_timer: float = 0.0
 var _last_checkpoint_position: Vector2
 var _next_checkpoint_index: int = 0 # index into terrain.checkpoints of the next one still to claim
 var _event_flash_timer: float = 0.0
 var _event_flash_duration: float = 1.0 # the duration passed to the most recent _show_event() call, needed to compute the fade fraction in _update_event_flash()
+
+# Ghost racing (see Ghost.gd/SaveManager.gd): _ghost_recording captures this
+# run's [x, y, roll_angle] every physics frame while the timer is running;
+# _ghost plays back the current best run's recording, one frame per physics
+# tick, in lockstep with recording so a faster/slower live run naturally
+# pulls ahead of or falls behind the ghost exactly like racing a real lap.
+var _ghost: Node2D = null
+var _ghost_recording: Array = []
 
 
 func _ready() -> void:
@@ -94,6 +109,16 @@ func _ready() -> void:
 	_last_checkpoint_position = _spawn_position
 	_fall_recovery_y = terrain.lowest_surface_y() + FALL_RECOVERY_MARGIN
 
+	# Persistent highscore + ghost - loaded once here rather than kept
+	# session-only, since the user explicitly asked to race against "ghosts
+	# from the best time on each map" across sessions, not just within one.
+	_best_time = SaveManager.get_best_time(terrain.level)
+	var ghost_frames: Array = SaveManager.get_ghost(terrain.level)
+	if not ghost_frames.is_empty():
+		_ghost = preload("res://scripts/Ghost.gd").new()
+		add_child(_ghost)
+		_ghost.load_frames(ghost_frames)
+
 	var end_x: float = terrain.course_end_x() - END_ZONE_MARGIN
 	end_zone.global_position = Vector2(end_x, terrain.height_at(end_x) - END_ZONE_HEIGHT / 2.0)
 
@@ -116,7 +141,7 @@ func _ready() -> void:
 	# Not a menu screen - just a HUD button, same category as Restart/Jump,
 	# that swaps to the other level's scene entirely (fresh Player/Terrain/
 	# Main, no shared state) rather than trying to reconfigure Terrain live.
-	level_button.text = "Level 2" if terrain.level == 1 else "Level 1"
+	_update_level_button_label()
 	# Switched from the default .pressed click signal to button_down for the
 	# same reason as JumpButton above: .pressed only fires if the finger lifts
 	# while still over the button, so any tiny drag during a quick real-device
@@ -143,6 +168,9 @@ func _process(delta: float) -> void:
 
 	if not _timer_running and not _finished and joystick.get_vector().length() > 0.0:
 		_timer_running = true
+		_ghost_recording.clear()
+		if _ghost:
+			_ghost.start()
 
 	if _timer_running and not _finished:
 		_elapsed += delta
@@ -163,6 +191,23 @@ func _process(delta: float) -> void:
 	# Camera behavior (speed zoom, lookahead, landing shake, launch zoom
 	# kick, speed-streak overlay) is fully self-driven by CameraRig.gd once
 	# init() has been called - see _ready() above. Nothing to poll here.
+
+
+## Ghost recording/playback runs on the physics tick, not _process's variable
+## frame rate - recording happens here (not in _process) so a saved run's
+## frame count always means exactly one recorded sample per physics step,
+## matching the fixed cadence CLAUDE.md's own headless testing methodology
+## already relies on (see "await get_tree().physics_frame"). This keeps
+## playback speed-independent of real framerate on whatever device the ghost
+## is later watched on. Deliberately does NOT reset on death: neither
+## `_elapsed` nor the ghost's frame index resets when the player dies (see
+## _on_death()), so the ghost and the live timer stay in lockstep through a
+## death exactly the way they do through the rest of the run.
+func _physics_process(_delta: float) -> void:
+	if _timer_running and not _finished:
+		_ghost_recording.append([player.position.x, player.position.y, player.visual.rotation])
+		if _ghost:
+			_ghost.advance_frame()
 
 
 ## Advances the respawn point the moment the player passes the next
@@ -191,7 +236,11 @@ func _chain_text() -> String:
 
 func _update_timer_label() -> void:
 	timer_label.text = _format_time(_elapsed)
-	best_label.text = ("Best: %s" % _format_time(_best_time)) if _best_time >= 0.0 else ""
+	if _best_time >= 0.0:
+		var medal: String = Medals.medal_for(terrain.level, _best_time)
+		best_label.text = "Best: %s%s" % [_format_time(_best_time), ("  [%s]" % medal) if medal != "" else ""]
+	else:
+		best_label.text = ""
 
 
 ## Overrides the best-label text/color for a few seconds right after a new
@@ -267,17 +316,55 @@ func _on_end_zone_body_entered(body: Node) -> void:
 	if body == player and _timer_running and not _finished:
 		_finished = true
 		_timer_running = false
-		var is_new_best: bool = _best_time < 0.0 or _elapsed < _best_time
+		# SaveManager is the source of truth for "is this actually a new
+		# best" (it refuses to overwrite a better stored time) - trusting its
+		# return value rather than comparing to the in-memory _best_time here
+		# keeps the two from ever disagreeing.
+		var is_new_best: bool = SaveManager.record_result(terrain.level, _elapsed, _ghost_recording)
 		if is_new_best:
 			_best_time = _elapsed
 			_new_best_flash_timer = NEW_BEST_FLASH_DURATION
+			# Next attempt should race against the run that just finished,
+			# not the old one it just beat.
+			if _ghost:
+				_ghost.load_frames(_ghost_recording.duplicate())
+			else:
+				_ghost = preload("res://scripts/Ghost.gd").new()
+				add_child(_ghost)
+				_ghost.load_frames(_ghost_recording.duplicate())
+			_update_level_button_label() # this level's medal/unlock state may have just changed
 		_update_timer_label()
 		print("Final time: %s (%.3f s)%s" % [_format_time(_elapsed), _elapsed, "  NEW BEST" if is_new_best else ""])
 
 
+## Labels the button with the OTHER level's number, plus a lock marker if
+## that level isn't unlocked yet - a real player needs this to know the
+## button won't just be a level swap right now, without needing a whole
+## level-select menu screen to communicate it (see CLAUDE.md's minimalism
+## stance on menus).
+func _update_level_button_label() -> void:
+	var target_level: int = 2 if terrain.level == 1 else 1
+	var label: String = "Level %d" % target_level
+	if not SaveManager.is_level_unlocked(target_level):
+		label += " (Locked)"
+	level_button.text = label
+
+
+## Not a menu screen - just a HUD button, same category as Restart/Jump, that
+## swaps to the other level's scene entirely (fresh Player/Terrain/Main, no
+## shared state) rather than trying to reconfigure Terrain live - unless that
+## level is locked, in which case the swap is refused and the existing event
+## banner (used elsewhere for CHECKPOINT/DIED) explains why instead, showing
+## the bronze time still needed - the user's explicit Trackmania-style ask
+## ("levels unlocked by beating the bronze time") needs a real gate, not just
+## a cosmetic label.
 func _on_level_button_pressed() -> void:
-	var target: String = "res://scenes/Level2.tscn" if terrain.level == 1 else "res://scenes/Main.tscn"
-	get_tree().change_scene_to_file(target)
+	var target_level: int = 2 if terrain.level == 1 else 1
+	if not SaveManager.is_level_unlocked(target_level):
+		_show_event("LOCKED - beat %s on Level %d" % [_format_time(Medals.bronze_time(target_level - 1)), target_level - 1], LOCKED_FLASH_COLOR, LOCKED_FLASH_DURATION)
+		return
+	var target_scene: String = "res://scenes/Level2.tscn" if target_level == 2 else "res://scenes/Main.tscn"
+	get_tree().change_scene_to_file(target_scene)
 
 
 ## Falling off the world edge or missing a gap's jump - see _process()'s
@@ -297,6 +384,9 @@ func _on_restart_pressed() -> void:
 	camera.reset_camera()
 	_last_checkpoint_position = _spawn_position
 	_next_checkpoint_index = 0
+	_ghost_recording.clear()
+	if _ghost:
+		_ghost.stop() # will start() again from frame 0 once the next run's timer starts, same as the live run itself resetting to the spawn line
 	_new_best_flash_timer = 0.0
 	_event_flash_timer = 0.0
 	_event_label.text = ""

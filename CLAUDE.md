@@ -2,9 +2,18 @@
 
 A Godot 2D mobile prototype whose entire purpose is testing the *feel* of a
 lean-based movement system on hilly terrain. It is explicitly not a game yet:
-no menus, no title screen, no results screen, no save system, no
-ghost/replay. Do not add any of the "DO NOT BUILD" items below unless the
-user explicitly asks for that specific thing in that specific message.
+no menus, no title screen, no results screen. Do not add any of the "DO NOT
+BUILD" items below unless the user explicitly asks for that specific thing in
+that specific message.
+
+Two more items just moved out of that list, together, on one explicit ask:
+persistent highscores, ghost replays, and Trackmania-style bronze-time level
+unlocking. See "Persistence, Ghosts, and Level Unlocks" under Architecture for
+what was actually built and why the numbers used there are measured, not
+guessed. This does NOT reopen "no save system" or "no ghost/replay" as a
+general license - it's scoped exactly to per-level best-time+ghost
+persistence and the unlock gate, not a save-everything system, not a
+level-select menu, not cloud sync.
 
 There are now two levels (the user explicitly asked for a second course, so
 that item moved out of "DO NOT BUILD" - see the two-level architecture note
@@ -440,6 +449,108 @@ wrong-Godot-version risk at the top of this file to corrupt.
   physics regression). Whether it actually looks good is necessarily the
   user's own call on their device, the same limitation noted for the
   LevelButton fix above.
+
+### Persistence, Ghosts, and Level Unlocks
+
+The user's explicit ask: a highscore system with cross-session ghosts to race
+against ("race against ghosts from the best time on each map") and
+Trackmania-style progression ("levels unlocked by being faster than the
+bronze time, so the 3rd place of benchmarks"). This is the first real
+persistence this project has ever had - previously `_best_time` in Main.gd
+was deliberately session-only ("just gives restart-and-retry a sense of
+progress"); that design choice is gone now, replaced by an actual save file.
+
+- **`scripts/SaveManager.gd`** (new autoload, `SaveManager` in
+  `project.godot`): the single source of truth for per-level best time + best
+  run's ghost recording, persisted as plain JSON at `user://savedata.json`.
+  `record_result(level, time, ghost_frames)` is the only write path and
+  refuses to overwrite a stored time with a worse one - Main.gd doesn't do
+  its own "is this better" comparison before calling it, so there's exactly
+  one place that decision can ever be made incorrectly. A missing/corrupt
+  save file is treated as "fresh save," not an error - this is a
+  single-player prototype, not something that needs migration/versioning
+  machinery.
+- **`scripts/Medals.gd`** (new autoload, `Medals`): gold/silver/bronze time
+  thresholds per level, plus `medal_for(level, time)`. An autoload, not a
+  `class_name` Resource - deliberately NOT extending the narrow `class_name`
+  exception documented under Visual Presentation above (that's reserved for
+  `TimeOfDayPalette`/`PaletteController`'s specific Resource-subtype/exported-
+  enum need); a plain lookup singleton fits the same pattern SaveManager
+  itself already uses, so it stays consistent instead of adding a second kind
+  of cross-script reference to the project.
+  - **The thresholds were MEASURED, not guessed** - a throwaway 4-policy
+    headless bot (perfect tangent-tracking / "decent" - tangent-aware but a
+    consistent small angle error and slightly reduced magnitude / "randomish"
+    - tangent-aware with real per-frame angle+magnitude noise / "poor" - weak,
+    barely slope-aware input) raced both existing levels start to finish, same
+    "measure, don't guess" spirit as every other constant in this file. First
+    attempt at "decent"/"randomish"/"poor" used a fixed off-angle lean vector
+    that fought the slope on many segments instead of roughly tracking it -
+    that policy design was unrealistic enough that even "decent" arrived at
+    the level-1 terrain gap under ~500px/s and reliably died there forever
+    (a genuine infinite death-loop, caught via per-policy position/velocity
+    tracing, not a bug in the death/respawn system itself - the checkpoint
+    positions were already correct). Redesigned the weaker policies to still
+    roughly track the ground tangent (with error/noise/reduced magnitude
+    layered on top, not replacing it) and to commit to a clean, well-aimed
+    approach specifically in the 500px before any known gap and full
+    velocity-aligned air control while airborne over one (a real player lines
+    up a landmark gap deliberately even if their general technique elsewhere
+    is sloppy) - with that fix, perfect/decent/randomish all finish both
+    levels cleanly and "poor" reliably dies at the gap and DNFs, a believable
+    bronze-miss baseline. Results (level 1 / level 2): perfect 16.2s / 30.9s,
+    decent 17.8s / 34.3s, randomish 24.8s / 48.9s, poor DNF / DNF. Bronze is
+    set at the 3rd-place *finishing* policy's time (randomish) with a small
+    rounding buffer, per the user's explicit "3rd place of benchmarks"
+    framing; gold/silver sit at/above the perfect/decent times the same way.
+    This bot was throwaway scaffolding (per this file's own headless-testing
+    rules) and was not committed.
+- **`scripts/Ghost.gd`** (new): a visual-only, collision-free replay of a
+  level's best run - a translucent circle (same radius as the ball) that
+  walks through a recorded array of `[x, y, roll_angle]` triples, one triple
+  per physics frame. Deliberately frame-indexed rather than time-indexed:
+  Main.gd's new `_physics_process()` records the live run's own position into
+  `_ghost_recording` on the exact same physics tick it calls
+  `_ghost.advance_frame()`, so recording and playback share one clock by
+  construction - no separate interpolation/timing-drift logic needed, and a
+  faster or slower live run naturally pulls ahead of or falls behind the
+  ghost exactly like racing a real recorded lap. The ghost does NOT reset on
+  death (`_on_death()` never touches it) for the same reason `_elapsed`
+  doesn't: both stay in lockstep with the live run through a death exactly as
+  they do through the rest of it. It does reset on an explicit Restart (`
+  _ghost.stop()`, restarting again from frame 0 once the next attempt's timer
+  starts), matching the live run's own full reset there.
+- **Level unlock gate**: `SaveManager.is_level_unlocked(level)` - level 1 is
+  always unlocked; level N (N>1) needs level N-1's best time at or under
+  `Medals.bronze_time(N-1)`. Wired into the existing `LevelButton` rather
+  than a new menu screen (still off-limits per the top of this file): the
+  button's label now shows "(Locked)" when the target level isn't unlocked
+  yet, and pressing it while locked shows the existing one-shot event banner
+  (already used for CHECKPOINT/DIED) naming the bronze time still needed,
+  instead of swapping scenes. `_update_level_button_label()` is called both
+  at `_ready()` and right after a new best time is recorded, since crossing
+  bronze on THIS run should unlock the next level's button immediately, not
+  just after a scene reload.
+- Verified with a real full-course headless run through the actual game (not
+  a synthetic isolated check): a finished run persists via the real
+  `_on_end_zone_body_entered` path, a deliberately-worse fake repeat result
+  does not overwrite it, a deliberately-better one does, the level-2 unlock
+  flips from false to true the instant level 1's bronze is beaten (with the
+  button label updating in the same frame), a freshly-built `Ghost` loaded
+  from the saved recording advances through every frame without erroring and
+  correctly hides itself once its recording runs out, and a real
+  `change_scene_to_file` level switch through the now-unlocked button lands
+  on the correct level. Re-ran the standard clean-reimport + both-scenes
+  smoke test afterward per this file's own validation rules - no errors on
+  either level.
+- Next planned increments toward the user's larger ask (10 levels total,
+  progressively more challenging, each gated on the previous level's bronze):
+  levels 3+ don't exist yet and need the same care levels 1/2 got (hand-tuned
+  keyframes/zones, a dedicated flow-state passage, headlessly-verified gap
+  placement, and their own measured medal thresholds) - that's substantial
+  additional work, planned as further incremental commits rather than
+  invented wholesale in one pass, the same way level 2 itself was added
+  separately from level 1 rather than both at once.
 
 ## Movement design (as of this writing — check `Player.gd` for the actual
 ## current formulas, this is a summary not a source of truth)
